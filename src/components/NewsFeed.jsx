@@ -6,6 +6,9 @@ import { fetchCyberSecurityNews } from "../services/newsApi";
 /**
  * NewsFeed — fetches cybersecurity news on mount (and on page refresh)
  * and renders a list of NewsCard (compact) or NewsCardGrid (grid) components.
+ *
+ * Loading state uses a simple centered spinner instead of skeleton cards
+ * so the surrounding layout (search bar, toggle) stays fixed in place.
  */
 export default function NewsFeed({ viewMode = "compact" }) {
   const [articles, setArticles] = useState([]);
@@ -22,9 +25,8 @@ export default function NewsFeed({ viewMode = "compact" }) {
       try {
         const data = await fetchCyberSecurityNews();
         if (!cancelled) {
-          // Filter out articles with "[Removed]" title (NewsAPI quirk)
           const cleaned = data.filter(
-            (a) => a.title && a.title !== "[Removed]"
+            (a) => a.title && a.title !== "[Removed]",
           );
           setArticles(cleaned);
         }
@@ -48,85 +50,47 @@ export default function NewsFeed({ viewMode = "compact" }) {
 
   const isGrid = viewMode === "grid";
 
-  /* ── Loading skeleton ── */
+  /* ── Loading — centered spinner ── */
   if (loading) {
     return (
       <div
-        style={
-          isGrid
-            ? {
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-                gap: "16px",
-                width: "100%",
-                boxSizing: "border-box",
-              }
-            : {
-                display: "flex",
-                flexDirection: "column",
-                gap: "16px",
-                width: "100%",
-                boxSizing: "border-box",
-              }
-        }
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "80px 20px",
+          gap: "16px",
+          width: "100%",
+          boxSizing: "border-box",
+        }}
       >
-        {[...Array(isGrid ? 6 : 5)].map((_, i) => (
-          <div
-            key={i}
-            style={{
-              background: "rgba(255,255,255,0.02)",
-              border: "1px solid rgba(255,255,255,0.04)",
-              borderRadius: "16px",
-              padding: "24px 28px",
-              minHeight: isGrid ? "220px" : "100px",
-              opacity: 0,
-              animation: `fadeSlideUp 0.4s ease forwards ${i * 0.08}s`,
-            }}
-          >
-            {/* Source skeleton */}
-            <div
-              style={{
-                width: "80px",
-                height: "20px",
-                borderRadius: "6px",
-                background:
-                  "linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 75%)",
-                backgroundSize: "200% 100%",
-                animation: "shimmer 1.5s infinite",
-                marginBottom: "12px",
-              }}
-            />
-            {/* Title skeleton */}
-            <div
-              style={{
-                width: `${70 + Math.random() * 25}%`,
-                height: "18px",
-                borderRadius: "4px",
-                background:
-                  "linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 75%)",
-                backgroundSize: "200% 100%",
-                animation: "shimmer 1.5s infinite",
-                marginBottom: "8px",
-              }}
-            />
-            <div
-              style={{
-                width: `${40 + Math.random() * 30}%`,
-                height: "18px",
-                borderRadius: "4px",
-                background:
-                  "linear-gradient(90deg, rgba(255,255,255,0.03) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.03) 75%)",
-                backgroundSize: "200% 100%",
-                animation: "shimmer 1.5s infinite",
-              }}
-            />
-          </div>
-        ))}
+        {/* Spinning circle */}
+        <div
+          style={{
+            width: "40px",
+            height: "40px",
+            border: "3px solid rgba(255,255,255,0.06)",
+            borderTop: "3px solid #c792ea",
+            borderRadius: "50%",
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
+        <p
+          style={{
+            color: "#5a5a6a",
+            fontSize: "13px",
+            fontWeight: 500,
+            margin: 0,
+          }}
+        >
+          Loading News
+        </p>
 
         <style>{`
-          @keyframes shimmer {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
           }
         `}</style>
       </div>

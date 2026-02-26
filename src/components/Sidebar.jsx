@@ -49,7 +49,7 @@ export default function Sidebar({ open, setOpen, navigateTo }) {
         display: "flex",
         flexDirection: "column",
         fontFamily: "'DM Sans', sans-serif",
-        overflow: "visible",
+        overflow: "hidden",
       }}
     >
       {/*  Header  */}
@@ -200,14 +200,12 @@ export default function Sidebar({ open, setOpen, navigateTo }) {
                 </span>
               </button>
 
-              {/* Tooltip when collapsed */}
+              {/* Tooltip when collapsed — uses position:fixed to escape overflow:hidden */}
               {!open && isHovered && (
                 <div
                   style={{
-                    position: "absolute",
+                    position: "fixed",
                     left: `${SIDEBAR_WIDTH_CLOSED + 8}px`,
-                    top: "50%",
-                    transform: "translateY(-50%)",
                     background: "#1e1e26",
                     border: "1px solid rgba(255,255,255,0.1)",
                     borderRadius: "8px",

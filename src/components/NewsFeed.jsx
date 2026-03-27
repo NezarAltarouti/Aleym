@@ -209,6 +209,9 @@ export default function NewsFeed({ viewMode = "compact" }) {
           url={article.url}
           source={article.source?.name}
           description={article.description}
+          content={article.content}
+          author={article.author}
+          urlToImage={article.urlToImage}
           index={i}
         />
       ))}

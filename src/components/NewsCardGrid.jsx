@@ -2,6 +2,12 @@ import { useState } from "react";
 
 /**
  * NewsCardGrid — displays a single news article in a square card layout.
+ * Props:
+ *   - title, publishedAt, url, source, description
+ *   - content: raw content from NewsAPI (may be truncated)
+ *   - author: article author
+ *   - urlToImage: hero image URL
+ *   - index: number (for staggered animation)
  */
 export default function NewsCardGrid({
   title,
@@ -9,9 +15,13 @@ export default function NewsCardGrid({
   url,
   source,
   description,
+  content,
+  author,
+  urlToImage,
   index = 0,
 }) {
   const [hovered, setHovered] = useState(false);
+  const [hoveredBtn, setHoveredBtn] = useState(null);
 
   const date = new Date(publishedAt);
   const formattedDate = date.toLocaleDateString("en-US", {
@@ -27,12 +37,12 @@ export default function NewsCardGrid({
   const delay = Math.min(index * 0.06, 1.2);
 
   return (
-    <a
-      href={url}
-      target="_blank"
-      rel="noopener noreferrer"
+    <div
       onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseLeave={() => {
+        setHovered(false);
+        setHoveredBtn(null);
+      }}
       style={{
         display: "block",
         textDecoration: "none",
@@ -57,7 +67,6 @@ export default function NewsCardGrid({
           boxShadow: hovered
             ? "0 12px 40px rgba(199,146,234,0.1), 0 4px 12px rgba(0,0,0,0.3)"
             : "0 1px 4px rgba(0,0,0,0.2)",
-          cursor: "pointer",
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
@@ -67,7 +76,7 @@ export default function NewsCardGrid({
       >
         {/* Top section */}
         <div>
-          {/* Source badge + arrow row */}
+          {/* Source badge + button row */}
           <div
             style={{
               display: "flex",
@@ -93,41 +102,87 @@ export default function NewsCardGrid({
               {source || "News"}
             </div>
 
-            {/* Arrow icon */}
-            <div
-              style={{
-                width: "32px",
-                height: "32px",
-                borderRadius: "10px",
-                background: hovered
-                  ? "linear-gradient(135deg, #c792ea, #82aaff)"
-                  : "rgba(255,255,255,0.04)",
-                border: "1px solid",
-                borderColor: hovered ? "transparent" : "rgba(255,255,255,0.06)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-                transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
-              }}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={hovered ? "#0e0e12" : "#6a6a7a"}
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{
-                  transition: "stroke 0.2s ease, transform 0.2s ease",
-                  transform: hovered ? "translateX(2px)" : "translateX(0)",
-                }}
+            {/* Button group */}
+            <div style={{ display: "flex", gap: "6px" }}>
+              {/* Arrow / source button */}
+              <div
+                style={{ position: "relative" }}
+                onMouseEnter={() => setHoveredBtn("source")}
+                onMouseLeave={() => setHoveredBtn(null)}
               >
-                <line x1="5" y1="12" x2="19" y2="12" />
-                <polyline points="12 5 19 12 12 19" />
-              </svg>
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: "flex", textDecoration: "none" }}
+                >
+                  <div
+                    style={{
+                      width: "32px",
+                      height: "32px",
+                      borderRadius: "10px",
+                      background:
+                        hoveredBtn === "source"
+                          ? "linear-gradient(135deg, #c792ea, #82aaff)"
+                          : "rgba(255,255,255,0.04)",
+                      border: "1px solid",
+                      borderColor:
+                        hoveredBtn === "source"
+                          ? "transparent"
+                          : "rgba(255,255,255,0.06)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                      transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+                    }}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={hoveredBtn === "source" ? "#0e0e12" : "#6a6a7a"}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{
+                        transition: "stroke 0.2s ease, transform 0.2s ease",
+                        transform:
+                          hoveredBtn === "source"
+                            ? "translateX(2px)"
+                            : "translateX(0)",
+                      }}
+                    >
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                      <polyline points="12 5 19 12 12 19" />
+                    </svg>
+                  </div>
+                </a>
+                {hoveredBtn === "source" && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: "calc(100% + 8px)",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      background: "#1e1e26",
+                      border: "1px solid rgba(255,255,255,0.1)",
+                      borderRadius: "8px",
+                      padding: "6px 12px",
+                      fontSize: "12px",
+                      color: "#e8e6e1",
+                      whiteSpace: "nowrap",
+                      zIndex: 10,
+                      boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    Redirect to source
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -204,6 +259,6 @@ export default function NewsCardGrid({
           </span>
         </div>
       </div>
-    </a>
+    </div>
   );
 }

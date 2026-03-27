@@ -114,9 +114,7 @@ export default function Home({ navigateTo }) {
             }}
           >
             {/* Left side: icon + title */}
-            <div
-              style={{ display: "flex", alignItems: "center", gap: "12px" }}
-            >
+            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <div
                 style={{
                   width: "36px",

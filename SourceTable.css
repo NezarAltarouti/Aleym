@@ -1,0 +1,56 @@
+table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 16px;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  font-size: 14px;
+  margin-top: 51px;
+}
+
+/* Header */
+.TableHeader{
+    background: linear-gradient(135deg, #c792ea, #82aaff);
+}
+
+.TableHeader th {
+  text-align: center;
+  padding: 18px 20px;
+  color: #000000;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Body Rows */
+tbody td {
+  padding: 18px 20px;
+  color: #d4d4d8;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  text-align: center;
+}
+
+/* Row Hover Effect */
+tbody tr {
+  transition: all 0.2s ease;
+}
+
+tbody tr:hover {
+  background: rgba(130, 170, 255, 0.06);
+  transform: scale(1.01);
+}
+
+/* Remove last border */
+tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* URL column styling */
+tbody td:nth-child(2) {
+  color: #c792ea;
+  font-size: 13px;
+  word-break: break-all;
+}

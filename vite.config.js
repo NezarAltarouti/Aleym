@@ -11,6 +11,16 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api\/newsapi/, ""),
       },
+      // Proxy for the Aleym API to avoid CORS during development
+      "/api": {
+        target: "http://127.0.0.1:3000",
+        changeOrigin: true,
+      },
+      // SSE events endpoint
+      "/events": {
+        target: "http://127.0.0.1:3000",
+        changeOrigin: true,
+      },
     },
   },
 });

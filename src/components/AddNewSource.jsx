@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Popup from "reactjs-popup";
+import { fetchCategories } from "../services/aleymApi";
 
 const overlayStyle = {
   background: "rgba(0,0,0,0.6)",
@@ -45,8 +46,104 @@ const fieldGroupStyle = {
   gap: "6px",
 };
 
-export default function AddNewSource({ trigger }) {
+export default function AddNewSource({ trigger, onSourceAdded }) {
   const [hoveredBtn, setHoveredBtn] = useState(null);
+  const [categories, setCategories] = useState([]);
+
+  // Form state
+  const [name, setName] = useState("");
+  const [feedUrl, setFeedUrl] = useState("");
+  const [network, setNetwork] = useState("Clear");
+  const [fetcher, setFetcher] = useState("FeedRs");
+  const [description, setDescription] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("");
+
+  // Submission state
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const [success, setSuccess] = useState(false);
+
+  // Load categories on mount
+  useEffect(() => {
+    fetchCategories()
+      .then(setCategories)
+      .catch(() => {});
+  }, []);
+
+  const resetForm = () => {
+    setName("");
+    setFeedUrl("");
+    setNetwork("Clear");
+    setFetcher("FeedRs");
+    setDescription("");
+    setSelectedCategory("");
+    setError(null);
+    setSuccess(false);
+  };
+
+  const handleSave = async (close) => {
+    if (!name.trim()) {
+      setError("Source name is required");
+      return;
+    }
+    if (!feedUrl.trim()) {
+      setError("Feed URL is required");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      // Step 1: Create the source
+      const informant = { [fetcher]: { feed_url: feedUrl.trim() } };
+      const body = {
+        name: name.trim(),
+        network,
+        informant,
+      };
+      if (description.trim()) {
+        body.description = description.trim();
+      }
+
+      const res = await fetch("/api/sources", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(errText || `Server error: ${res.status}`);
+      }
+
+      const sourceId = await res.text();
+
+      // Step 2: Assign category if one was selected
+      if (selectedCategory) {
+        const catRes = await fetch(
+          `/api/sources/${sourceId.replace(/"/g, "")}/categories/${selectedCategory}`,
+          { method: "POST" }
+        );
+        if (!catRes.ok) {
+          console.warn("Source created but category assignment failed");
+        }
+      }
+
+      setSuccess(true);
+      if (onSourceAdded) onSourceAdded();
+
+      // Auto-close after brief success message
+      setTimeout(() => {
+        resetForm();
+        close();
+      }, 1000);
+    } catch (err) {
+      setError(err.message || "Failed to create source");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <Popup
@@ -60,6 +157,7 @@ export default function AddNewSource({ trigger }) {
         padding: 0,
         width: "auto",
       }}
+      onClose={resetForm}
     >
       {(close) => (
         <div
@@ -71,7 +169,8 @@ export default function AddNewSource({ trigger }) {
             width: "420px",
             maxWidth: "90vw",
             fontFamily: "'DM Sans', sans-serif",
-            boxShadow: "0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(199,146,234,0.08)",
+            boxShadow:
+              "0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(199,146,234,0.08)",
           }}
         >
           {/* Header */}
@@ -88,54 +187,140 @@ export default function AddNewSource({ trigger }) {
               Add New Source
             </h2>
             <p style={{ fontSize: "12px", color: "#5a5a6a", margin: 0 }}>
-              Configure a new news source 
+              Configure a new news source
             </p>
           </div>
+
+          {/* Success message */}
+          {success && (
+            <div
+              style={{
+                padding: "12px 16px",
+                borderRadius: "10px",
+                background: "rgba(74,222,128,0.08)",
+                border: "1px solid rgba(74,222,128,0.2)",
+                color: "#4ade80",
+                fontSize: "13px",
+                fontWeight: 500,
+                marginBottom: "18px",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+              Source created successfully!
+            </div>
+          )}
+
+          {/* Error message */}
+          {error && (
+            <div
+              style={{
+                padding: "12px 16px",
+                borderRadius: "10px",
+                background: "rgba(255,100,100,0.08)",
+                border: "1px solid rgba(255,100,100,0.2)",
+                color: "#ff6464",
+                fontSize: "13px",
+                marginBottom: "18px",
+              }}
+            >
+              {error}
+            </div>
+          )}
 
           {/* Form fields */}
           <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
             <div style={fieldGroupStyle}>
-              <label style={labelStyle}>Source Name</label>
+              <label style={labelStyle}>Source Name *</label>
               <input
                 type="text"
-                placeholder="Enter a source name"
+                placeholder="e.g. The Hacker News"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
                 style={inputStyle}
-                onFocus={(e) => (e.target.style.borderColor = "rgba(199,146,234,0.4)")}
-                onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.08)")}
+                onFocus={(e) =>
+                  (e.target.style.borderColor = "rgba(199,146,234,0.4)")
+                }
+                onBlur={(e) =>
+                  (e.target.style.borderColor = "rgba(255,255,255,0.08)")
+                }
               />
             </div>
 
             <div style={fieldGroupStyle}>
-              <label style={labelStyle}>Source ID or URL</label>
+              <label style={labelStyle}>Feed URL *</label>
               <input
                 type="text"
-                placeholder="Enter the source ID or URL"
+                placeholder="e.g. https://feeds.feedburner.com/TheHackersNews"
+                value={feedUrl}
+                onChange={(e) => setFeedUrl(e.target.value)}
                 style={inputStyle}
-                onFocus={(e) => (e.target.style.borderColor = "rgba(199,146,234,0.4)")}
-                onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.08)")}
+                onFocus={(e) =>
+                  (e.target.style.borderColor = "rgba(199,146,234,0.4)")
+                }
+                onBlur={(e) =>
+                  (e.target.style.borderColor = "rgba(255,255,255,0.08)")
+                }
               />
             </div>
 
             <div style={fieldGroupStyle}>
-              <label style={labelStyle}>Networking Method</label>
-              <select style={selectStyle}>
-                <option value="tor">Tor</option>
-                <option value="clearNet">Clear Net</option>
+              <label style={labelStyle}>Description</label>
+              <input
+                type="text"
+                placeholder="Optional description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                style={inputStyle}
+                onFocus={(e) =>
+                  (e.target.style.borderColor = "rgba(199,146,234,0.4)")
+                }
+                onBlur={(e) =>
+                  (e.target.style.borderColor = "rgba(255,255,255,0.08)")
+                }
+              />
+            </div>
+
+            <div style={fieldGroupStyle}>
+              <label style={labelStyle}>Network</label>
+              <select
+                value={network}
+                onChange={(e) => setNetwork(e.target.value)}
+                style={selectStyle}
+              >
+                <option value="Clear">Clear Net</option>
+                <option value="Tor">Tor</option>
               </select>
             </div>
 
             <div style={fieldGroupStyle}>
-              <label style={labelStyle}>Used Fetcher</label>
-              <select style={selectStyle}>
-                <option value="Atom">Atom Fetcher</option>
-                <option value="RSS">RSS Fetcher</option>
+              <label style={labelStyle}>Fetcher</label>
+              <select
+                value={fetcher}
+                onChange={(e) => setFetcher(e.target.value)}
+                style={selectStyle}
+              >
+                <option value="FeedRs">Feed (RSS/Atom)</option>
               </select>
             </div>
 
             <div style={fieldGroupStyle}>
               <label style={labelStyle}>Category</label>
-              <select style={selectStyle}>
-                <option value="Cyber">Cybersecurity</option>
+              <select
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                style={selectStyle}
+              >
+                <option value="">None</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -152,9 +337,13 @@ export default function AddNewSource({ trigger }) {
             }}
           >
             <button
-              onClick={close}
+              onClick={() => {
+                resetForm();
+                close();
+              }}
               onMouseEnter={() => setHoveredBtn("cancel")}
               onMouseLeave={() => setHoveredBtn(null)}
+              disabled={saving}
               style={{
                 padding: "10px 24px",
                 fontSize: "14px",
@@ -171,15 +360,18 @@ export default function AddNewSource({ trigger }) {
                     ? "rgba(255,255,255,0.06)"
                     : "rgba(255,255,255,0.03)",
                 color: "#b0b0c0",
-                cursor: "pointer",
+                cursor: saving ? "not-allowed" : "pointer",
                 transition: "all 0.15s ease",
+                opacity: saving ? 0.5 : 1,
               }}
             >
               Cancel
             </button>
             <button
+              onClick={() => handleSave(close)}
               onMouseEnter={() => setHoveredBtn("save")}
               onMouseLeave={() => setHoveredBtn(null)}
+              disabled={saving || success}
               style={{
                 padding: "10px 28px",
                 fontSize: "14px",
@@ -189,19 +381,39 @@ export default function AddNewSource({ trigger }) {
                 border: "none",
                 background: "linear-gradient(135deg, #c792ea, #82aaff)",
                 color: "#0e0e12",
-                cursor: "pointer",
+                cursor: saving || success ? "not-allowed" : "pointer",
                 transition: "all 0.2s ease",
                 transform:
-                  hoveredBtn === "save" ? "translateY(-1px)" : "translateY(0)",
+                  hoveredBtn === "save" && !saving
+                    ? "translateY(-1px)"
+                    : "translateY(0)",
                 boxShadow:
-                  hoveredBtn === "save"
+                  hoveredBtn === "save" && !saving
                     ? "0 6px 24px rgba(199,146,234,0.3)"
                     : "none",
+                opacity: saving ? 0.7 : 1,
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
               }}
             >
-              Save
+              {saving && (
+                <div
+                  style={{
+                    width: "14px",
+                    height: "14px",
+                    border: "2px solid rgba(14,14,18,0.3)",
+                    borderTop: "2px solid #0e0e12",
+                    borderRadius: "50%",
+                    animation: "spin 0.8s linear infinite",
+                  }}
+                />
+              )}
+              {saving ? "Saving…" : "Save"}
             </button>
           </div>
+
+          <style>{`@keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }`}</style>
         </div>
       )}
     </Popup>

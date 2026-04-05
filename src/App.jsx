@@ -1,14 +1,20 @@
-import { useState, useRef } from "react";
+import { useState } from "react";
 import Home from "./Pages/Home";
 import SourcesManagements from "./Pages/SourcesManagement";
+import AleymFeed from "./Pages/AleymFeed";
+import ArticlePage from "./Pages/ArticlePage";
 
 export default function App() {
   const [page, setPage] = useState("home");
+  const [selectedArticleId, setSelectedArticleId] = useState(null);
 
+  const navigateTo = (p, data) => {
+    if (p === "article" && data?.articleId) {
+      setSelectedArticleId(data.articleId);
+    }
+    setPage(p);
+  };
 
-const navigateTo = (p) => {
-  setPage(p);
-};
   return (
     <>
       <style>{`
@@ -32,7 +38,6 @@ const navigateTo = (p) => {
           to { opacity: 1; transform: translateX(0); }
         }
 
-        /* ── Modern minimal scrollbar — thin, overlay, auto-fading ── */
         html { scrollbar-width: thin; scrollbar-color: rgba(199,146,234,0.2) transparent; }
 
         ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -44,23 +49,18 @@ const navigateTo = (p) => {
           background-clip: padding-box;
           transition: background 0.3s ease;
         }
-        ::-webkit-scrollbar-thumb:hover {
-          background: rgba(199,146,234,0.35);
-        }
-        ::-webkit-scrollbar-thumb:active {
-          background: rgba(199,146,234,0.5);
-        }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(199,146,234,0.35); }
+        ::-webkit-scrollbar-thumb:active { background: rgba(199,146,234,0.5); }
         ::-webkit-scrollbar-corner { background: transparent; }
 
-        /* Overlay mode — scrollbar floats on top, doesn't eat layout space */
         body { overflow-y: overlay; }
-        @supports not (overflow-y: overlay) {
-          body { overflow-y: auto; }
-        }
+        @supports not (overflow-y: overlay) { body { overflow-y: auto; } }
       `}</style>
 
       {page === "home" && <Home navigateTo={navigateTo} />}
       {page === "sources" && <SourcesManagements navigateTo={navigateTo} />}
+      {page === "aleym" && <AleymFeed navigateTo={navigateTo} />}
+      {page === "article" && <ArticlePage articleId={selectedArticleId} navigateTo={navigateTo} />}
     </>
   );
 }

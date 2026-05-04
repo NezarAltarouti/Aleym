@@ -1,15 +1,23 @@
 import { useState } from "react";
+import api from "../services/aleymApi";
+
+//NO ANIMATION (NO SLIDE)
+
 
 /**
  * NewsCardGrid — displays a single news article in a square card layout.
  * Props:
+ *   - id: string (UUID) — required for feedback / read-state actions
  *   - title, publishedAt, url, source, description
  *   - content: raw content from NewsAPI (may be truncated)
  *   - author: article author
  *   - urlToImage: hero image URL
+ *   - isRead: boolean — current read state from the API
+ *   - onReadChange: (newIsRead: boolean) => void — parent callback when read flag toggles
  *   - index: number (for staggered animation)
  */
 export default function NewsCardGrid({
+  id,
   title,
   publishedAt,
   url,
@@ -18,10 +26,33 @@ export default function NewsCardGrid({
   content,
   author,
   urlToImage,
+  isRead = false,
+  onReadChange,
   index = 0,
 }) {
   const [hovered, setHovered] = useState(false);
   const [hoveredBtn, setHoveredBtn] = useState(null);
+
+  // ---- Vote state (persisted via localStorage) ----
+  // The Aleym API has no "get my vote" endpoint, so we cache the choice
+  // locally to keep the UI consistent across navigation/page reloads.
+  // Key shape: aleym:vote:<articleId>  ->  "up" | "down"
+  // null = no vote yet, true = upvoted, false = downvoted.
+  const [vote, setVote] = useState(() => {
+    if (!id) return null;
+    try {
+      const stored = localStorage.getItem(`aleym:vote:${id}`);
+      if (stored === "up") return true;
+      if (stored === "down") return false;
+      return null;
+    } catch {
+      return null;
+    }
+  });
+
+  // ---- Read state (mirrors API for optimistic toggling) ----
+  const [readState, setReadState] = useState(isRead);
+  const [readBusy, setReadBusy] = useState(false);
 
   const date = new Date(publishedAt);
   const formattedDate = date.toLocaleDateString("en-US", {
@@ -36,6 +67,99 @@ export default function NewsCardGrid({
 
   const delay = Math.min(index * 0.06, 1.2);
 
+  // ---- Action handlers ----
+  const sendVote = (isUpVote) => {
+    if (!id) return;
+    setVote(isUpVote);
+    try {
+      localStorage.setItem(`aleym:vote:${id}`, isUpVote ? "up" : "down");
+    } catch {
+      // localStorage can throw (quota, private mode). Vote still fires
+      // server-side; we just won't visually remember it next session.
+    }
+    api.feedback
+      .explicitVote({
+        news: id,
+        done_at: Math.floor(Date.now() / 1000),
+        is_up_vote: isUpVote,
+      })
+      .catch((err) => console.warn("[NewsCardGrid] vote failed:", err));
+  };
+
+  // Shared internals for both manual toggle and auto-mark.
+  const writeReadState = (next) => {
+    if (!id || readBusy) return;
+    setReadBusy(true);
+    setReadState(next);
+    api.articles
+      .setRead(id, next)
+      .then(() => {
+        if (typeof onReadChange === "function") onReadChange(next);
+      })
+      .catch((err) => {
+        console.warn("[NewsCardGrid] setRead failed:", err);
+        setReadState(!next); // revert on failure
+      })
+      .finally(() => setReadBusy(false));
+  };
+
+  const toggleRead = () => writeReadState(!readState);
+
+  // Auto-mark-as-read when the user clicks the card body or the source link.
+  // We always mark as read on click — even if the user previously toggled it
+  // unread — because clicking is a fresh engagement signal.
+  // Skips when the click came from one of the action buttons (those handle
+  // their own state) or when the article is already read.
+  const handleCardClick = (e) => {
+    if (e.target.closest("button")) return;
+    if (readState) return;
+    writeReadState(true);
+  };
+
+  // Shared style helpers for the action buttons (kept consistent with the
+  // existing source button's look).
+  const iconBtnStyle = (isHover, isActive, activeGradient) => ({
+    width: "32px",
+    height: "32px",
+    borderRadius: "10px",
+    background: isActive
+      ? activeGradient
+      : isHover
+      ? "rgba(255,255,255,0.08)"
+      : "rgba(255,255,255,0.04)",
+    border: "1px solid",
+    borderColor: isActive
+      ? "transparent"
+      : isHover
+      ? "rgba(255,255,255,0.12)"
+      : "rgba(255,255,255,0.06)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    cursor: "pointer",
+    flexShrink: 0,
+    transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+    padding: 0,
+  });
+  const tooltipStyle = {
+    position: "absolute",
+    bottom: "calc(100% + 8px)",
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "#1e1e26",
+    border: "1px solid rgba(255,255,255,0.1)",
+    borderRadius: "8px",
+    padding: "6px 12px",
+    fontSize: "12px",
+    color: "#e8e6e1",
+    whiteSpace: "nowrap",
+    zIndex: 10,
+    boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+    pointerEvents: "none",
+  };
+  const strokeFor = (isHover, isActive) =>
+    isActive ? "#0e0e12" : isHover ? "#e8e6e1" : "#6a6a7a";
+
   return (
     <div
       onMouseEnter={() => setHovered(true)}
@@ -43,12 +167,14 @@ export default function NewsCardGrid({
         setHovered(false);
         setHoveredBtn(null);
       }}
+      onClick={handleCardClick}
       style={{
         display: "block",
         textDecoration: "none",
         color: "inherit",
         opacity: 0,
         animation: `fadeSlideUp 0.5s ease forwards ${delay}s`,
+        cursor: "pointer",
       }}
     >
       <div
@@ -72,6 +198,7 @@ export default function NewsCardGrid({
           justifyContent: "space-between",
           minHeight: "240px",
           height: "100%",
+          opacity: readState ? 0.72 : 1,
         }}
       >
         {/* Top section */}
@@ -104,7 +231,146 @@ export default function NewsCardGrid({
 
             {/* Button group */}
             <div style={{ display: "flex", gap: "6px" }}>
-              {/* Arrow / source button */}
+              {/* ---- Upvote ---- */}
+              <div
+                style={{ position: "relative" }}
+                onMouseEnter={() => setHoveredBtn("up")}
+                onMouseLeave={() => setHoveredBtn(null)}
+              >
+                <button
+                  type="button"
+                  aria-label="Upvote"
+                  aria-pressed={vote === true}
+                  onClick={() => sendVote(true)}
+                  style={iconBtnStyle(
+                    hoveredBtn === "up",
+                    vote === true,
+                    "linear-gradient(135deg, #82d982, #4ec94e)",
+                  )}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill={vote === true ? "#0e0e12" : "none"}
+                    stroke={strokeFor(hoveredBtn === "up", vote === true)}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M7 10v12" />
+                    <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7V10l4.34-7.66A1.5 1.5 0 0 1 14 3.5l1 2.38Z" />
+                  </svg>
+                </button>
+                {hoveredBtn === "up" && (
+                  <div style={tooltipStyle}>
+                    {vote === true ? "Upvoted" : "Upvote"}
+                  </div>
+                )}
+              </div>
+
+              {/* ---- Downvote ---- */}
+              <div
+                style={{ position: "relative" }}
+                onMouseEnter={() => setHoveredBtn("down")}
+                onMouseLeave={() => setHoveredBtn(null)}
+              >
+                <button
+                  type="button"
+                  aria-label="Downvote"
+                  aria-pressed={vote === false}
+                  onClick={() => sendVote(false)}
+                  style={iconBtnStyle(
+                    hoveredBtn === "down",
+                    vote === false,
+                    "linear-gradient(135deg, #ff8a8a, #e25757)",
+                  )}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill={vote === false ? "#0e0e12" : "none"}
+                    stroke={strokeFor(hoveredBtn === "down", vote === false)}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M17 14V2" />
+                    <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H17v12l-4.34 7.66A1.5 1.5 0 0 1 10 20.5l-1-2.38Z" />
+                  </svg>
+                </button>
+                {hoveredBtn === "down" && (
+                  <div style={tooltipStyle}>
+                    {vote === false ? "Downvoted" : "Downvote"}
+                  </div>
+                )}
+              </div>
+
+              {/* ---- Read / Unread toggle ---- */}
+              <div
+                style={{ position: "relative" }}
+                onMouseEnter={() => setHoveredBtn("read")}
+                onMouseLeave={() => setHoveredBtn(null)}
+              >
+                <button
+                  type="button"
+                  aria-label={readState ? "Mark as unread" : "Mark as read"}
+                  aria-pressed={readState}
+                  disabled={readBusy}
+                  onClick={toggleRead}
+                  style={{
+                    ...iconBtnStyle(
+                      hoveredBtn === "read",
+                      readState,
+                      "linear-gradient(135deg, #c792ea, #82aaff)",
+                    ),
+                    cursor: readBusy ? "wait" : "pointer",
+                  }}
+                >
+                  {readState ? (
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={strokeFor(hoveredBtn === "read", true)}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
+                      <path d="m3 8 9-6 9 6" />
+                      <path d="m3 8 9 6 9-6" />
+                    </svg>
+                  ) : (
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke={strokeFor(hoveredBtn === "read", false)}
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="3" y="5" width="18" height="14" rx="2" />
+                      <path d="m3 7 9 6 9-6" />
+                      <circle cx="19" cy="6" r="3" fill="#82aaff" stroke="none" />
+                    </svg>
+                  )}
+                </button>
+                {hoveredBtn === "read" && (
+                  <div style={tooltipStyle}>
+                    {readState ? "Mark as unread" : "Mark as read"}
+                  </div>
+                )}
+              </div>
+
+              {/* ---- Source link ----
+                  Note: this is intentionally an <a> (not a <button>), so
+                  clicks bubble up to handleCardClick and auto-mark as read
+                  while the new tab opens. */}
               <div
                 style={{ position: "relative" }}
                 onMouseEnter={() => setHoveredBtn("source")}
@@ -234,7 +500,6 @@ export default function NewsCardGrid({
             borderTop: "1px solid rgba(255,255,255,0.04)",
           }}
         >
-          {/* Calendar icon */}
           <svg
             width="13"
             height="13"
@@ -257,6 +522,25 @@ export default function NewsCardGrid({
           <span style={{ fontSize: "11px", color: "#5a5a6a" }}>
             {formattedTime}
           </span>
+
+          {readState && (
+            <span
+              style={{
+                marginLeft: "auto",
+                fontSize: "10px",
+                fontWeight: 600,
+                letterSpacing: "1px",
+                textTransform: "uppercase",
+                color: "#5a5a6a",
+                background: "rgba(255,255,255,0.04)",
+                border: "1px solid rgba(255,255,255,0.06)",
+                borderRadius: "4px",
+                padding: "2px 6px",
+              }}
+            >
+              Read
+            </span>
+          )}
         </div>
       </div>
     </div>

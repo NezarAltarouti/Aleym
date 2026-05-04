@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import Popup from "reactjs-popup";
-import { fetchCategories } from "../services/aleymApi";
+import api from "../services/aleymApi";
 
 const overlayStyle = {
   background: "rgba(0,0,0,0.6)",
@@ -65,9 +65,12 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
 
   // Load categories on mount
   useEffect(() => {
-    fetchCategories()
-      .then(setCategories)
-      .catch(() => {});
+    let alive = true;
+    api.categories
+      .list()
+      .then((cats) => { if (alive) setCategories(cats || []); })
+      .catch((err) => console.warn("Failed to load categories:", err));
+    return () => { alive = false; };
   }, []);
 
   const resetForm = () => {
@@ -95,38 +98,27 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
     setError(null);
 
     try {
-      // Step 1: Create the source
+      // Step 1: Create the source via the API service
       const informant = { [fetcher]: { feed_url: feedUrl.trim() } };
-      const body = {
+      const payload = {
         name: name.trim(),
         network,
         informant,
       };
       if (description.trim()) {
-        body.description = description.trim();
+        payload.description = description.trim();
       }
 
-      const res = await fetch("/api/sources", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const errText = await res.text();
-        throw new Error(errText || `Server error: ${res.status}`);
-      }
-
-      const sourceId = await res.text();
+      const sourceId = await api.sources.create(payload);
 
       // Step 2: Assign category if one was selected
-      if (selectedCategory) {
-        const catRes = await fetch(
-          `/api/sources/${sourceId.replace(/"/g, "")}/categories/${selectedCategory}`,
-          { method: "POST" }
-        );
-        if (!catRes.ok) {
-          console.warn("Source created but category assignment failed");
+      if (selectedCategory && sourceId) {
+        try {
+          await api.sources.linkCategory(sourceId, selectedCategory);
+        } catch (linkErr) {
+          // Source was created, only the category link failed.
+          // Surface as a warning, don't fail the whole creation.
+          console.warn("Source created but category assignment failed:", linkErr);
         }
       }
 

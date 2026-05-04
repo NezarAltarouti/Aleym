@@ -1,6 +1,6 @@
 import { useState } from "react";
 import Popup from "reactjs-popup";
-import { fetchCategories } from "../services/aleymApi";
+import api from "../services/aleymApi";
 
 const overlayStyle = {
   background: "rgba(0,0,0,0.6)",
@@ -13,7 +13,7 @@ export default function DeleteCategory({ trigger, onCategoryDeleted }) {
   // Data state
   const [categories, setCategories] = useState([]);
   const [selectedIds, setSelectedIds] = useState([]);
-  
+
   // UI state
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -26,10 +26,10 @@ export default function DeleteCategory({ trigger, onCategoryDeleted }) {
     setError(null);
     setSuccess(false);
     setSelectedIds([]);
-    
+
     try {
-      const data = await fetchCategories();
-      setCategories(data);
+      const data = await api.categories.list();
+      setCategories(data || []);
     } catch (err) {
       setError(err.message || "Failed to load categories.");
     } finally {
@@ -45,20 +45,14 @@ export default function DeleteCategory({ trigger, onCategoryDeleted }) {
 
   const handleExecuteDelete = async (close) => {
     if (selectedIds.length === 0) return;
-    
+
     setDeleting(true);
     setError(null);
 
     try {
       // Execute all delete requests concurrently
       await Promise.all(
-        selectedIds.map(async (id) => {
-          const res = await fetch(`/api/categories/${id}`, { method: "DELETE" });
-          if (!res.ok) {
-            const errText = await res.text();
-            throw new Error(errText || `Failed to delete category.`);
-          }
-        })
+        selectedIds.map((id) => api.categories.remove(id))
       );
 
       setSuccess(true);
@@ -288,7 +282,7 @@ export default function DeleteCategory({ trigger, onCategoryDeleted }) {
                   fontWeight: 600,
                   fontFamily: "'DM Sans', sans-serif",
                   borderRadius: "10px",
-                  
+
                   background: "rgba(255,100,100,0.1)",
                   color: "#ff6464",
                   cursor: (deleting || success || selectedIds.length === 0) ? "not-allowed" : "pointer",

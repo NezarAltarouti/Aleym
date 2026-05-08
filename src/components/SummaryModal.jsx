@@ -2,107 +2,135 @@ import { useState, useEffect, useRef } from "react";
 import api from "../services/aleymApi";
 import ollama from "../services/OllamaService2";
 
-/**
- * SummaryModal — popup that fetches an article and shows an AI summary.
- *
- * Renders as a centered overlay/modal (not a full page). Closes on:
- *   - clicking the backdrop
- *   - clicking the close (×) button
- *   - pressing Escape
- *
- * Props:
- *   - articleId: string (UUID) — null/undefined hides the modal
- *   - onClose: () => void
- */
 export default function SummaryModal({ articleId, onClose }) {
   const [article, setArticle] = useState(null);
   const [sourceName, setSourceName] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [language, setLanguage] = useState(null); // null = picker shown, "en" | "ar" = chosen
   const [summary, setSummary] = useState("");
   const [summarizing, setSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState(null);
   const [summaryDone, setSummaryDone] = useState(false);
 
+  // Cache availability shown on the language picker
+  const [enCached, setEnCached] = useState(false);
+  const [arCached, setArCached] = useState(false);
+
   const abortRef = useRef(null);
 
-  // Single effect: load article + stream summary in sequence.
+  // Effect 1: Load article when modal opens. Don't summarize yet — wait for language pick.
   useEffect(() => {
     if (!articleId) return;
     let cancelled = false;
-    const controller = new AbortController();
-    abortRef.current = controller;
 
-    // Reset state for new article
     setLoading(true);
     setError(null);
     setArticle(null);
     setSourceName("");
+    setLanguage(null);
     setSummary("");
     setSummaryDone(false);
     setSummaryError(null);
     setSummarizing(false);
 
-    async function loadAndSummarize() {
+    // Check what's already cached for the picker badges
+    setEnCached(ollama.hasCachedSummary(articleId, "en"));
+    setArCached(ollama.hasCachedSummary(articleId, "ar"));
+
+    async function loadArticle() {
       try {
-        // 1) Fetch article + sources
         const [articleData, sourcesData] = await Promise.all([
           api.articles.getById(articleId),
           api.sources.list(),
         ]);
         if (cancelled) return;
-
         setArticle(articleData);
         const src = (sourcesData || []).find(
           (s) => s.id === articleData.source,
         );
-        const name = src?.name ?? "Unknown";
-        setSourceName(name);
+        setSourceName(src?.name ?? "Unknown");
         setLoading(false);
-
-        // 2) Stream summary (Ollama handles missing fields gracefully)
-        setSummarizing(true);
-        await ollama.summarizeStream(
-          {
-            title: articleData.title,
-            content: articleData.content || "",
-            description: articleData.summary || "",
-            source: name,
-          },
-          (chunk) => {
-            if (!cancelled) setSummary((prev) => prev + chunk);
-          },
-          controller.signal,
-        );
-        if (cancelled) return;
-        setSummaryDone(true);
       } catch (err) {
-        if (cancelled || err.name === "AbortError") return;
-        // Distinguish article-load failure vs summary failure
-        if (!article && !summary) {
-          setError(err.message || "Failed to load article");
-        } else {
-          setSummaryError(err.message || "Failed to generate summary");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          setSummarizing(false);
-        }
+        if (cancelled) return;
+        setError(err.message || "Failed to load article");
+        setLoading(false);
       }
     }
 
-    loadAndSummarize();
+    loadArticle();
+    return () => {
+      cancelled = true;
+    };
+  }, [articleId]);
 
+  // Effect 2: When language is picked AND article is loaded, fetch / stream summary.
+  useEffect(() => {
+    if (!articleId || !language || !article) return;
+
+    let cancelled = false;
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    setSummary("");
+    setSummaryDone(false);
+    setSummaryError(null);
+
+    async function runSummary() {
+      // 1) Cache hit?
+      const cached = ollama.getCachedSummary(articleId, language);
+      if (cached) {
+        if (cancelled) return;
+        setSummary(cached.summary);
+        setSummaryDone(true);
+        return;
+      }
+
+      // 2) Cache miss — stream from Ollama
+      setSummarizing(true);
+      let streamed = "";
+      try {
+        await ollama.summarizeStream(
+          {
+            title: article.title,
+            content: article.content || "",
+            description: article.summary || "",
+            source: sourceName,
+          },
+          (chunk) => {
+            if (cancelled) return;
+            streamed += chunk;
+            setSummary((prev) => prev + chunk);
+          },
+          controller.signal,
+          language,
+        );
+        if (cancelled) return;
+
+        if (streamed.trim()) {
+          ollama.setCachedSummary(articleId, streamed.trim(), language);
+          // Refresh the badge state in case the user goes back to the picker
+          if (language === "en") setEnCached(true);
+          else setArCached(true);
+        }
+        setSummaryDone(true);
+      } catch (err) {
+        if (cancelled || err.name === "AbortError") return;
+        setSummaryError(err.message || "Failed to generate summary");
+      } finally {
+        if (!cancelled) setSummarizing(false);
+      }
+    }
+
+    runSummary();
     return () => {
       cancelled = true;
       controller.abort();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [articleId]);
+  }, [articleId, language, article, sourceName]);
 
-  // Close on Escape
+  // Escape closes the modal (unchanged)
   useEffect(() => {
     if (!articleId) return;
     const onKey = (e) => {
@@ -112,8 +140,9 @@ export default function SummaryModal({ articleId, onClose }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [articleId, onClose]);
 
-  // Don't render if no article requested
   if (!articleId) return null;
+
+  const isArabic = language === "ar";
 
   return (
     <div
@@ -230,13 +259,7 @@ export default function SummaryModal({ articleId, onClose }) {
         </div>
 
         {/* Body — scrollable */}
-        <div
-          style={{
-            padding: "24px",
-            overflowY: "auto",
-            flex: 1,
-          }}
-        >
+        <div style={{ padding: "24px", overflowY: "auto", flex: 1 }}>
           {/* Loading article */}
           {loading && (
             <div
@@ -284,8 +307,52 @@ export default function SummaryModal({ articleId, onClose }) {
             </div>
           )}
 
-          {/* Article loaded — show title + summary */}
-          {!loading && !error && article && (
+          {/* PHASE 1 — Language picker */}
+          {!loading && !error && article && language === null && (
+            <div style={{ padding: "8px 0" }}>
+              <h2
+                style={{
+                  fontSize: "16px",
+                  fontFamily: "'Playfair Display', serif",
+                  fontWeight: 700,
+                  color: "#e8e6e1",
+                  margin: "0 0 6px 0",
+                  textAlign: "center",
+                }}
+              >
+                Choose summary language
+              </h2>
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "#6a6a7a",
+                  textAlign: "center",
+                  margin: "0 0 24px 0",
+                }}
+              >
+                اختر لغة الملخص
+              </p>
+
+              <div style={{ display: "flex", gap: "12px" }}>
+                <LanguageButton
+                  label="English"
+                  sublabel="Generate in English"
+                  cached={enCached}
+                  onClick={() => setLanguage("en")}
+                />
+                <LanguageButton
+                  label="العربية"
+                  sublabel="إنشاء باللغة العربية"
+                  cached={arCached}
+                  onClick={() => setLanguage("ar")}
+                  rtl
+                />
+              </div>
+            </div>
+          )}
+
+          {/* PHASE 2 / 3 — Summary view */}
+          {!loading && !error && article && language !== null && (
             <>
               {/* Source */}
               {sourceName && (
@@ -308,7 +375,7 @@ export default function SummaryModal({ articleId, onClose }) {
                 </div>
               )}
 
-              {/* Title */}
+              {/* Title — keep in original language */}
               <h2
                 style={{
                   fontSize: "18px",
@@ -322,7 +389,6 @@ export default function SummaryModal({ articleId, onClose }) {
                 {article.title}
               </h2>
 
-              {/* Divider */}
               <div
                 style={{
                   height: "1px",
@@ -332,16 +398,20 @@ export default function SummaryModal({ articleId, onClose }) {
                 }}
               />
 
-              {/* Summary text */}
+              {/* Summary */}
               {summary && (
                 <p
+                  dir={isArabic ? "rtl" : "ltr"}
                   style={{
                     fontSize: "15px",
-                    lineHeight: 1.75,
+                    lineHeight: 1.85,
                     color: "#c8c6c1",
-                    fontFamily: "'Source Serif 4', serif",
+                    fontFamily: isArabic
+                      ? "'Noto Naskh Arabic', 'Amiri', serif"
+                      : "'Source Serif 4', serif",
                     margin: 0,
-                    letterSpacing: "0.2px",
+                    letterSpacing: isArabic ? "0" : "0.2px",
+                    textAlign: isArabic ? "right" : "left",
                   }}
                 >
                   {summary}
@@ -361,7 +431,7 @@ export default function SummaryModal({ articleId, onClose }) {
                 </p>
               )}
 
-              {/* Initial summarizing state (no text yet) */}
+              {/* Initial summarizing state */}
               {!summary && summarizing && !summaryError && (
                 <div
                   style={{
@@ -383,7 +453,7 @@ export default function SummaryModal({ articleId, onClose }) {
                       animation: "spin 0.8s linear infinite",
                     }}
                   />
-                  Generating summary with {ollama.model}…
+                  {isArabic ? `جاري إنشاء الملخص` : `Generating summary`}
                 </div>
               )}
 
@@ -407,35 +477,51 @@ export default function SummaryModal({ articleId, onClose }) {
                   >
                     Could not generate summary
                   </p>
-                  <p
-                    style={{
-                      color: "#8a5a5a",
-                      fontSize: "12px",
-                      margin: 0,
-                    }}
-                  >
+                  <p style={{ color: "#8a5a5a", fontSize: "12px", margin: 0 }}>
                     {summaryError}
                   </p>
                 </div>
               )}
 
-              {/* Done footer */}
+              {/* Done footer + back-to-language link */}
               {summaryDone && (
-                <p
+                <div
                   style={{
                     marginTop: "20px",
                     paddingTop: "14px",
                     borderTop: "1px solid rgba(255,255,255,0.04)",
-                    fontSize: "10px",
-                    color: "#3a3a4a",
-                    margin: "20px 0 0 0",
-                    paddingTop: "14px",
-                    textAlign: "center",
-                    letterSpacing: "0.5px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "12px",
                   }}
                 >
-                  Generated locally by {ollama.model} via Ollama
-                </p>
+                  <button
+                    onClick={() => setLanguage(null)}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      color: "#8a8a9a",
+                      fontSize: "11px",
+                      padding: "5px 10px",
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      fontFamily: "'DM Sans', sans-serif",
+                    }}
+                  >
+                    ← Change language
+                  </button>
+                  <p
+                    style={{
+                      fontSize: "10px",
+                      color: "#3a3a4a",
+                      margin: 0,
+                      letterSpacing: "0.5px",
+                    }}
+                  >
+                    Generated locally by {ollama.model} via Ollama
+                  </p>
+                </div>
               )}
             </>
           )}
@@ -452,5 +538,69 @@ export default function SummaryModal({ articleId, onClose }) {
         }
       `}</style>
     </div>
+  );
+}
+
+/** Small helper component for the two language buttons. */
+function LanguageButton({ label, sublabel, cached, onClick, rtl = false }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      dir={rtl ? "rtl" : "ltr"}
+      style={{
+        flex: 1,
+        padding: "20px 16px",
+        background: hover ? "rgba(255,203,107,0.08)" : "rgba(255,255,255,0.02)",
+        border: hover
+          ? "1px solid rgba(255,203,107,0.35)"
+          : "1px solid rgba(255,255,255,0.08)",
+        borderRadius: "12px",
+        color: "#e8e6e1",
+        cursor: "pointer",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        gap: "6px",
+        transition: "all 0.15s ease",
+        position: "relative",
+        fontFamily: "inherit",
+      }}
+    >
+      <span
+        style={{
+          fontSize: "16px",
+          fontWeight: 600,
+          fontFamily: rtl
+            ? "'Noto Naskh Arabic', 'Amiri', serif"
+            : "'Playfair Display', serif",
+        }}
+      >
+        {label}
+      </span>
+      <span style={{ fontSize: "11px", color: "#6a6a7a" }}>{sublabel}</span>
+      {cached && (
+        <span
+          style={{
+            position: "absolute",
+            top: "8px",
+            right: "8px",
+            fontSize: "9px",
+            fontWeight: 600,
+            color: "#7dd87d",
+            background: "rgba(125,216,125,0.1)",
+            border: "1px solid rgba(125,216,125,0.2)",
+            borderRadius: "4px",
+            padding: "2px 6px",
+            letterSpacing: "0.5px",
+            textTransform: "uppercase",
+          }}
+        >
+          ✓ cached
+        </span>
+      )}
+    </button>
   );
 }

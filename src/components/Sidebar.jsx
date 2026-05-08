@@ -433,7 +433,7 @@ export default function Sidebar({
                         const isSelectedSource = selectedSources.has(source.id);
                         return (
                           <button
-                            key={source.id}
+                            key={`${category.id}-${source.id}`}
                             onClick={() => toggleSourceSelection(source.id)}
                             onMouseEnter={() => setHovered(`source-${source.id}`)}
                             onMouseLeave={() => setHovered(null)}

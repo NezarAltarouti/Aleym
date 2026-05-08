@@ -1,8 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import api from "../services/aleymApi";
 import SummarizeButton from "./SummarizeButton";
 
-//NO ANIMATION (NO SLIDE)
+// NO ANIMATION (NO SLIDE)
 
 /**
  * NewsCardGrid — displays a single news article in a square card layout.
@@ -16,6 +16,11 @@ import SummarizeButton from "./SummarizeButton";
  *   - onReadChange: (newIsRead: boolean) => void — parent callback when read flag toggles
  *   - onSummarize: (articleId: string) => void — callback to open AI summary view
  *   - index: number (for staggered animation)
+ *
+ * VOTING BEHAVIOR:
+ *   - Click upvote/downvote once to vote
+ *   - Click the same button again to UNDO (clear the vote)
+ *   - Click the opposite button to switch votes
  */
 export default function NewsCardGrid({
   id,
@@ -36,6 +41,7 @@ export default function NewsCardGrid({
   const [hoveredBtn, setHoveredBtn] = useState(null);
 
   // ---- Vote state (persisted via localStorage) ----
+  // null = no vote, true = upvoted, false = downvoted
   const [vote, setVote] = useState(() => {
     if (!id) return null;
     try {
@@ -47,6 +53,30 @@ export default function NewsCardGrid({
       return null;
     }
   });
+
+  // Track voting in progress to prevent double-clicks
+  const [voteBusy, setVoteBusy] = useState(false);
+
+  // Listen for vote changes from other components (e.g. ArticlePage)
+  useEffect(() => {
+    if (!id) return;
+
+    const handleVoteChange = (e) => {
+      // Only update if this event is for THIS article
+      if (e.detail?.articleId !== id) return;
+
+      const newVote = e.detail.vote;
+      // Convert string format ("up"/"down"/null) to boolean format
+      if (newVote === "up") setVote(true);
+      else if (newVote === "down") setVote(false);
+      else setVote(null);
+    };
+
+    window.addEventListener("aleym:vote-changed", handleVoteChange);
+    return () => {
+      window.removeEventListener("aleym:vote-changed", handleVoteChange);
+    };
+  }, [id]);
 
   // ---- Read state (mirrors API for optimistic toggling) ----
   const [readState, setReadState] = useState(isRead);
@@ -63,22 +93,97 @@ export default function NewsCardGrid({
     minute: "2-digit",
   });
 
-  const delay = Math.min(index * 0.06, 1.2);
-
   // ---- Action handlers ----
+
+  /**
+   * Enhanced vote handler with toggle/undo logic
+   * - First click: sets the vote (up or down)
+   * - Second click on same button: clears the vote (undo)
+   * - Click opposite button: switches the vote
+   */
   const sendVote = (isUpVote) => {
-    if (!id) return;
-    setVote(isUpVote);
+    if (!id || voteBusy) return;
+
+    // Capture previous vote BEFORE updating, for error recovery
+    const previousVote = vote;
+
+    // Determine new vote state: if clicking same button, toggle off (undo)
+    const isUndo = previousVote === isUpVote;
+    const newVote = isUndo ? null : isUpVote;
+
+    setVoteBusy(true);
+    setVote(newVote); // Optimistic UI update
+
+    // Persist to localStorage immediately
     try {
-      localStorage.setItem(`aleym:vote:${id}`, isUpVote ? "up" : "down");
+      if (newVote === null) {
+        localStorage.removeItem(`aleym:vote:${id}`);
+      } else {
+        localStorage.setItem(`aleym:vote:${id}`, newVote ? "up" : "down");
+      }
     } catch {}
-    api.feedback
-      .explicitVote({
+
+    // Notify other components (article page) about the vote change
+    // Convert boolean → string format for consistency
+    const voteString = newVote === null ? null : newVote ? "up" : "down";
+    window.dispatchEvent(
+      new CustomEvent("aleym:vote-changed", {
+        detail: { articleId: id, vote: voteString },
+      }),
+    );
+
+    // Choose API call based on whether this is an undo or a vote
+    // If your API has a dedicated "remove vote" endpoint, use it here.
+    // Otherwise, we skip the API call for undo to avoid sending invalid data.
+    let apiPromise;
+
+    if (isUndo) {
+      // Try to call a dedicated removeVote endpoint if it exists,
+      // otherwise just resolve locally (UI undo only)
+      if (api.feedback && typeof api.feedback.removeVote === "function") {
+        apiPromise = api.feedback.removeVote({
+          news: id,
+          done_at: Math.floor(Date.now() / 1000),
+        });
+      } else {
+        // No backend support for undo — UI-only undo
+        apiPromise = Promise.resolve();
+      }
+    } else {
+      apiPromise = api.feedback.explicitVote({
         news: id,
         done_at: Math.floor(Date.now() / 1000),
-        is_up_vote: isUpVote,
+        is_up_vote: newVote,
+      });
+    }
+
+    apiPromise
+      .catch((err) => {
+        console.warn("[NewsCardGrid] vote failed:", err);
+        // Revert UI to the captured previous vote
+        setVote(previousVote);
+        // Also revert localStorage
+        try {
+          if (previousVote === null) {
+            localStorage.removeItem(`aleym:vote:${id}`);
+          } else {
+            localStorage.setItem(
+              `aleym:vote:${id}`,
+              previousVote ? "up" : "down",
+            );
+          }
+        } catch {}
+
+        // Notify others about the revert
+        const revertVoteString =
+          previousVote === null ? null : previousVote ? "up" : "down";
+        window.dispatchEvent(
+          new CustomEvent("aleym:vote-changed", {
+            detail: { articleId: id, vote: revertVoteString },
+          }),
+        );
       })
-      .catch((err) => console.warn("[NewsCardGrid] vote failed:", err));
+      .finally(() => setVoteBusy(false));
   };
 
   const writeReadState = (next) => {
@@ -162,8 +267,6 @@ export default function NewsCardGrid({
         display: "block",
         textDecoration: "none",
         color: "inherit",
-        opacity: 0,
-        animation: `fadeSlideUp 0.5s ease forwards ${delay}s`,
         cursor: "pointer",
       }}
     >
@@ -238,14 +341,18 @@ export default function NewsCardGrid({
               >
                 <button
                   type="button"
-                  aria-label="Upvote"
+                  aria-label={vote === true ? "Remove upvote" : "Upvote"}
                   aria-pressed={vote === true}
+                  disabled={voteBusy}
                   onClick={() => sendVote(true)}
-                  style={iconBtnStyle(
-                    hoveredBtn === "up",
-                    vote === true,
-                    "linear-gradient(135deg, #82d982, #4ec94e)",
-                  )}
+                  style={{
+                    ...iconBtnStyle(
+                      hoveredBtn === "up",
+                      vote === true,
+                      "linear-gradient(135deg, #82d982, #4ec94e)",
+                    ),
+                    cursor: voteBusy ? "wait" : "pointer",
+                  }}
                 >
                   <svg
                     width="14"
@@ -263,7 +370,7 @@ export default function NewsCardGrid({
                 </button>
                 {hoveredBtn === "up" && (
                   <div style={tooltipStyle}>
-                    {vote === true ? "Upvoted" : "Upvote"}
+                    {vote === true ? "Remove upvote" : "Upvote"}
                   </div>
                 )}
               </div>
@@ -276,14 +383,18 @@ export default function NewsCardGrid({
               >
                 <button
                   type="button"
-                  aria-label="Downvote"
+                  aria-label={vote === false ? "Remove downvote" : "Downvote"}
                   aria-pressed={vote === false}
+                  disabled={voteBusy}
                   onClick={() => sendVote(false)}
-                  style={iconBtnStyle(
-                    hoveredBtn === "down",
-                    vote === false,
-                    "linear-gradient(135deg, #ff8a8a, #e25757)",
-                  )}
+                  style={{
+                    ...iconBtnStyle(
+                      hoveredBtn === "down",
+                      vote === false,
+                      "linear-gradient(135deg, #ff8a8a, #e25757)",
+                    ),
+                    cursor: voteBusy ? "wait" : "pointer",
+                  }}
                 >
                   <svg
                     width="14"
@@ -301,7 +412,7 @@ export default function NewsCardGrid({
                 </button>
                 {hoveredBtn === "down" && (
                   <div style={tooltipStyle}>
-                    {vote === false ? "Downvoted" : "Downvote"}
+                    {vote === false ? "Remove downvote" : "Downvote"}
                   </div>
                 )}
               </div>

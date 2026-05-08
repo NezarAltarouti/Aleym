@@ -53,7 +53,8 @@ function stripHtml(html) {
 // ---------------------------------------------------------------------------
 
 /**
- * Builds a summarization prompt that adapts to whatever fields are available.
+ * Builds a summarization prompt that adapts to whatever fields are available
+ * and to the requested output language.
  *
  * Strategy:
  *   - If full content exists -> summarize the content.
@@ -67,13 +68,19 @@ function stripHtml(html) {
  * @param {string} [article.description]
  * @param {string} [article.source]
  * @param {string} [article.author]
+ * @param {"en"|"ar"} [language="en"] - output language for the summary
  */
-function buildSummaryPrompt(article) {
+function buildSummaryPrompt(article, language = "en") {
   const hasTitle = hasContent(article.title);
   const hasDescription = hasContent(article.description);
   const hasFullContent = hasContent(article.content);
   const hasSource = hasContent(article.source);
   const hasAuthor = hasContent(article.author);
+
+  const isArabic = language === "ar";
+  const langDirective = isArabic
+    ? "Write the summary in Modern Standard Arabic (العربية الفصحى). Use natural, fluent Arabic — do not transliterate English words unless they are proper nouns. Do not include any English text in the summary."
+    : "Write the summary in English.";
 
   // Decide on the strategy based on what's available.
   let instruction;
@@ -82,25 +89,28 @@ function buildSummaryPrompt(article) {
       "Summarize the following news article in 3-5 sentences. " +
       "Focus on the key facts, main argument, and important conclusions. " +
       "Write in a neutral, informative tone. Do not add opinions or commentary. " +
-      "Do not start with 'This article' or 'The article' - jump straight into the summary.";
+      "Do not start with 'This article' or 'The article' - jump straight into the summary. " +
+      langDirective;
   } else if (hasDescription) {
     instruction =
       "Below is a short description of a news article. The full content is not available. " +
       "Expand this description into a clear, informative 2-3 sentence summary based ONLY on what is provided. " +
-      "Do not invent facts. Do not speculate beyond what the description states.";
+      "Do not invent facts. Do not speculate beyond what the description states. " +
+      langDirective;
   } else if (hasTitle) {
     instruction =
       "Below is only the title of a news article - no other content is available. " +
       "Provide a brief 1-2 sentence note explaining what the article is likely about based on the title. " +
-      "Be explicit that this is inferred from the title alone and that full content is not available.";
+      "Be explicit that this is inferred from the title alone and that full content is not available. " +
+      langDirective;
   } else {
-    instruction =
-      "No article information was provided. Respond with: 'No content available to summarize.'";
+    instruction = isArabic
+      ? "لا توجد معلومات عن المقال. أجب بـ: 'لا يوجد محتوى للتلخيص.'"
+      : "No article information was provided. Respond with: 'No content available to summarize.'";
   }
 
   const parts = [instruction, ""];
 
-  // Add available fields, skipping anything empty.
   if (hasTitle) parts.push(`Title: ${article.title.trim()}`);
   if (hasSource) parts.push(`Source: ${article.source.trim()}`);
   if (hasAuthor) parts.push(`Author: ${article.author.trim()}`);
@@ -112,7 +122,7 @@ function buildSummaryPrompt(article) {
     parts.push(`\nContent:\n${trimmed}`);
   }
 
-  parts.push("\nSummary:");
+  parts.push(isArabic ? "\nالملخص:" : "\nSummary:");
 
   return parts.join("\n");
 }
@@ -122,8 +132,8 @@ function buildSummaryPrompt(article) {
 // ---------------------------------------------------------------------------
 
 /** Non-streaming summarization. */
-async function summarize(article, signal) {
-  const prompt = buildSummaryPrompt(article);
+async function summarize(article, signal, language = "en") {
+  const prompt = buildSummaryPrompt(article, language);
   const url = `${OLLAMA_BASE}/api/generate`;
 
   let res;
@@ -162,8 +172,8 @@ async function summarize(article, signal) {
 }
 
 /** Streaming summarization with progressive chunks. */
-async function summarizeStream(article, onChunk, signal) {
-  const prompt = buildSummaryPrompt(article);
+async function summarizeStream(article, onChunk, signal, language = "en") {
+  const prompt = buildSummaryPrompt(article, language);
   const url = `${OLLAMA_BASE}/api/generate`;
 
   let res;
@@ -263,6 +273,105 @@ async function healthCheck() {
 }
 
 // ---------------------------------------------------------------------------
+// Local storage cache (per article × model × language)
+// ---------------------------------------------------------------------------
+
+const CACHE_PREFIX = "aleym_summary:";
+const CACHE_VERSION = 2; // bumped — old keys without language are ignored
+
+function cacheKey(articleId, language) {
+  const lang = language === "ar" ? "ar" : "en";
+  return `${CACHE_PREFIX}${articleId}:${OLLAMA_MODEL}:${lang}`;
+}
+
+function safeStorage() {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return null;
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function getCachedSummary(articleId, language = "en") {
+  if (!articleId) return null;
+  const storage = safeStorage();
+  if (!storage) return null;
+
+  try {
+    const raw = storage.getItem(cacheKey(articleId, language));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed.version !== CACHE_VERSION) return null;
+    if (typeof parsed.summary !== "string" || !parsed.summary) return null;
+    return {
+      summary: parsed.summary,
+      model: parsed.model,
+      language: parsed.language,
+      savedAt: parsed.savedAt,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function setCachedSummary(articleId, summary, language = "en") {
+  if (!articleId || !summary) return;
+  const storage = safeStorage();
+  if (!storage) return;
+
+  try {
+    const payload = JSON.stringify({
+      version: CACHE_VERSION,
+      summary,
+      model: OLLAMA_MODEL,
+      language: language === "ar" ? "ar" : "en",
+      savedAt: Date.now(),
+    });
+    storage.setItem(cacheKey(articleId, language), payload);
+  } catch {
+    /* quota / storage error — silent */
+  }
+}
+
+function clearCachedSummary(articleId, language) {
+  if (!articleId) return;
+  const storage = safeStorage();
+  if (!storage) return;
+  try {
+    if (language) {
+      storage.removeItem(cacheKey(articleId, language));
+    } else {
+      // Clear both languages for this article
+      storage.removeItem(cacheKey(articleId, "en"));
+      storage.removeItem(cacheKey(articleId, "ar"));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearAllCachedSummaries() {
+  const storage = safeStorage();
+  if (!storage) return;
+  try {
+    const toRemove = [];
+    for (let i = 0; i < storage.length; i++) {
+      const key = storage.key(i);
+      if (key && key.startsWith(CACHE_PREFIX)) toRemove.push(key);
+    }
+    toRemove.forEach((k) => storage.removeItem(k));
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Quick check — does a cached summary exist for this article+language? */
+function hasCachedSummary(articleId, language = "en") {
+  return getCachedSummary(articleId, language) !== null;
+}
+
+// ---------------------------------------------------------------------------
 // Default export
 // ---------------------------------------------------------------------------
 
@@ -274,6 +383,12 @@ const ollama = {
   summarize,
   summarizeStream,
   healthCheck,
+  // cache
+  getCachedSummary,
+  setCachedSummary,
+  clearCachedSummary,
+  clearAllCachedSummaries,
+  hasCachedSummary,
 };
 
 export default ollama;

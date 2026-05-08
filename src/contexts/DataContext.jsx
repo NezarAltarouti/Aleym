@@ -8,24 +8,34 @@ export function DataProvider({ children }) {
   const [sources, setSources] = useState({});
   const [loading, setLoading] = useState(true);
 
-  const loadCategories = useCallback(async () => {
+  const loadData = useCallback(async () => {
+    setLoading(true);
     try {
-      const data = await api.categories.list();
-      setCategories(data || []);
-    } catch (error) {
-      console.error("Failed to load categories:", error);
-    }
-  }, []);
-
-  const loadSources = useCallback(async () => {
-    try {
+      // Single categories fetch shared by both
       const categoriesData = await api.categories.list();
+
+      // Deduplicate categories by id
+      const seen = new Set();
+      const uniqueCategories = (categoriesData || []).filter((c) => {
+        if (seen.has(c.id)) return false;
+        seen.add(c.id);
+        return true;
+      });
+      setCategories(uniqueCategories);
+
+      // Fetch sources per category
       const grouped = {};
       await Promise.all(
-        (categoriesData || []).map(async (category) => {
+        uniqueCategories.map(async (category) => {
           try {
             const data = await api.categories.sources(category.id);
-            grouped[category.id] = data || [];
+            // Deduplicate sources within each category
+            const seenSrc = new Set();
+            grouped[category.id] = (data || []).filter((s) => {
+              if (seenSrc.has(s.id)) return false;
+              seenSrc.add(s.id);
+              return true;
+            });
           } catch (e) {
             grouped[category.id] = [];
           }
@@ -33,30 +43,13 @@ export function DataProvider({ children }) {
       );
       setSources(grouped);
     } catch (error) {
-      console.error("Failed to load sources:", error);
+      console.error("Failed to load data:", error);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    await Promise.all([loadCategories(), loadSources()]);
-    setLoading(false);
-  }, [loadCategories, loadSources]);
-
   useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  const refreshCategories = useCallback(() => {
-    loadCategories();
-    loadSources(); // Refresh sources too since categories might affect grouping
-  }, [loadCategories, loadSources]);
-
-  const refreshSources = useCallback(() => {
-    loadSources();
-  }, [loadSources]);
-
-  const refreshAll = useCallback(() => {
     loadData();
   }, [loadData]);
 
@@ -65,9 +58,9 @@ export function DataProvider({ children }) {
       categories,
       sources,
       loading,
-      refreshCategories,
-      refreshSources,
-      refreshAll,
+      refreshCategories: loadData,
+      refreshSources: loadData,
+      refreshAll: loadData,
     }}>
       {children}
     </DataContext.Provider>

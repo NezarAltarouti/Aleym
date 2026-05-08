@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import api from "../services/aleymApi";
 import { ActivitySession } from "../services/activityTracker";
 
-
 // SLIDE-IN PANEL VERSION (embedded mode supported)
 // Minimum active-time before a Read signal is sent.
 const MIN_READ_MS = 2000;
@@ -140,24 +139,120 @@ export default function ArticlePage({
     };
   }, [article]);
 
-  // Vote handlers.
+  // Vote handlers — persisted via localStorage, supports toggle/undo.
   const [voteState, setVoteState] = useState(null);
+  const [voteBusy, setVoteBusy] = useState(false);
 
-  // Reset vote state when switching articles in embedded mode.
+  // Load persisted vote when articleId changes (works for embedded mode too).
   useEffect(() => {
-    setVoteState(null);
+    if (!articleId) {
+      setVoteState(null);
+      return;
+    }
+    try {
+      const stored = localStorage.getItem(`aleym:vote:${articleId}`);
+      if (stored === "up") setVoteState("up");
+      else if (stored === "down") setVoteState("down");
+      else setVoteState(null);
+    } catch {
+      setVoteState(null);
+    }
   }, [articleId]);
 
+  // Listen for vote changes from other components (e.g. cards)
+  useEffect(() => {
+    if (!articleId) return;
+
+    const handleVoteChange = (e) => {
+      if (e.detail?.articleId !== articleId) return;
+      setVoteState(e.detail.vote); // already in "up"/"down"/null format
+    };
+
+    window.addEventListener("aleym:vote-changed", handleVoteChange);
+    return () => {
+      window.removeEventListener("aleym:vote-changed", handleVoteChange);
+    };
+  }, [articleId]);
+
+  /**
+   * Vote handler with toggle/undo logic
+   * - First click: sets the vote (up or down)
+   * - Second click on same button: clears the vote (undo)
+   * - Click opposite button: switches the vote
+   */
   const handleVote = (isUpVote) => {
-    if (!article) return;
-    setVoteState(isUpVote ? "up" : "down");
-    api.feedback
-      .explicitVote({
+    if (!article || voteBusy) return;
+
+    // Capture previous state BEFORE updating, for error recovery
+    const previousVote = voteState;
+    const intendedVote = isUpVote ? "up" : "down";
+
+    // If clicking the same button, undo (clear vote)
+    const isUndo = previousVote === intendedVote;
+    const newVote = isUndo ? null : intendedVote;
+
+    setVoteBusy(true);
+    setVoteState(newVote); // Optimistic UI update
+
+    // Persist to localStorage
+    try {
+      if (newVote === null) {
+        localStorage.removeItem(`aleym:vote:${article.id}`);
+      } else {
+        localStorage.setItem(`aleym:vote:${article.id}`, newVote);
+      }
+    } catch {}
+
+    // Notify other components (cards) about the vote change
+    window.dispatchEvent(
+      new CustomEvent("aleym:vote-changed", {
+        detail: { articleId: article.id, vote: newVote },
+      }),
+    );
+
+    // Choose API call based on whether this is an undo
+    let apiPromise;
+
+    if (isUndo) {
+      if (api.feedback && typeof api.feedback.removeVote === "function") {
+        apiPromise = api.feedback.removeVote({
+          news: article.id,
+          done_at: Math.floor(Date.now() / 1000),
+        });
+      } else {
+        // No backend support for undo — UI-only undo
+        apiPromise = Promise.resolve();
+      }
+    } else {
+      apiPromise = api.feedback.explicitVote({
         news: article.id,
         done_at: Math.floor(Date.now() / 1000),
         is_up_vote: isUpVote,
+      });
+    }
+
+    apiPromise
+      .catch((err) => {
+        console.warn("Vote feedback failed:", err);
+        // Revert UI to the captured previous vote
+        setVoteState(previousVote);
+        // Also revert localStorage
+        try {
+          if (previousVote === null) {
+            localStorage.removeItem(`aleym:vote:${article.id}`);
+          } else {
+            localStorage.setItem(`aleym:vote:${article.id}`, previousVote);
+          }
+        } catch {}
+
+        // Notify other components about the reverted vote
+        window.dispatchEvent(
+          new CustomEvent("aleym:vote-changed", {
+            detail: { articleId: article.id, vote: previousVote },
+          }),
+        );
       })
-      .catch((err) => console.warn("Vote feedback failed:", err));
+      .finally(() => setVoteBusy(false));
   };
 
   // Label for the back button — adapts to where the user came from.
@@ -783,7 +878,7 @@ export default function ArticlePage({
             <div style={{ display: "flex", gap: "8px" }}>
               <button
                 onClick={() => handleVote(true)}
-                disabled={voteState !== null}
+                disabled={voteBusy}
                 style={voteBtnStyle(voteState === "up", "#7ec798")}
               >
                 <svg
@@ -802,7 +897,7 @@ export default function ArticlePage({
               </button>
               <button
                 onClick={() => handleVote(false)}
-                disabled={voteState !== null}
+                disabled={voteBusy}
                 style={voteBtnStyle(voteState === "down", "#ff8a8a")}
               >
                 <svg
@@ -918,8 +1013,8 @@ function voteBtnStyle(active, color) {
     fontSize: "13px",
     fontWeight: 500,
     fontFamily: "'DM Sans', sans-serif",
-    cursor: active ? "default" : "pointer",
+    cursor: "pointer", // Always clickable now (for undo/switch)
     transition: "all 0.2s ease",
-    opacity: active ? 1 : 0.95,
+    opacity: 1,
   };
 }

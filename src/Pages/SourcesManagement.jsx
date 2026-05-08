@@ -712,7 +712,7 @@ function StatsBar({ sources }) {
 }
 
 export default function SourcesManagement({ navigateTo }) {
-  const { refreshAll } = useData();
+  const { refreshAll, sources: ctxSources, categories: ctxCategories } = useData();
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     const saved = localStorage.getItem("sidebarOpen");
     return saved !== null ? JSON.parse(saved) : true;
@@ -748,11 +748,17 @@ export default function SourcesManagement({ navigateTo }) {
     setError(null);
     try {
       const srcData = await api.sources.list();
-      setSources(srcData || []);
+      const uniqueSources = Object.values(
+        (srcData || []).reduce((acc, s) => {
+          if (!acc[s.id]) acc[s.id] = s;
+          return acc;
+        }, {})
+      );
+setSources(uniqueSources);
 
       const catMap = {};
-      await Promise.all(
-        (srcData || []).map(async (source) => {
+        await Promise.all(
+          uniqueSources.map(async (source) => {
           try {
             const cats = await api.sources.categories(source.id);
             catMap[source.id] = (cats || []).map((c) => c.name).join(", ") || "—";
@@ -768,6 +774,29 @@ export default function SourcesManagement({ navigateTo }) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+  if (!ctxSources || Object.keys(ctxSources).length === 0) return;
+  const preliminary = {};
+  Object.entries(ctxSources).forEach(([catId, srcs]) => {
+    srcs.forEach((src) => {
+      const catName = ctxCategories.find((c) => String(c.id) === String(catId))?.name;
+      if (!catName) return;
+      if (preliminary[src.id]) {
+        preliminary[src.id] += `, ${catName}`;
+      } else {
+        preliminary[src.id] = catName;
+      }
+    });
+  });
+  setSourceCategoryMap((prev) =>
+    Object.keys(prev).length === 0 ? preliminary : prev
+  );
+}, [ctxSources, ctxCategories]);
+
+useEffect(() => {
+  loadData();
+  }, []);
 
   useEffect(() => {
     loadData();

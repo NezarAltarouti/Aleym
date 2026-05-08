@@ -166,24 +166,26 @@ const filterArticles = useCallback((articles) => {
 
         // Build source-to-category mapping by fetching sources for each category
         const sourceToCatMap = {};
-        const allSources = [];
-        
+        const sourcesMap = new Map();
+
         await Promise.all(
           (catData || []).map(async (cat) => {
             try {
               const srcList = await api.categories.sources(cat.id);
               (srcList || []).forEach((src) => {
-                sourceToCatMap[src.id] = cat.id;
-                allSources.push(src);
-              });
-            } catch (err) {
-              console.debug("Failed to load sources for category:", cat.id, err);
+              sourceToCatMap[src.id] = cat.id;
+              if (!sourcesMap.has(src.id)) {
+                sourcesMap.set(src.id, src);
+              }
+            });
+          } catch (err) {
+            console.debug("Failed to load sources for category:", cat.id, err);
             }
           }),
-        );
+    );
 
-        if (alive) {
-          setSources(allSources);
+if (alive) {
+  setSources(Array.from(sourcesMap.values()));
           setSourceToCategoryMap(sourceToCatMap);
         }
       } catch (err) {
@@ -252,7 +254,12 @@ const filterArticles = useCallback((articles) => {
         attempts += 1;
       }
 
-      setArticles(filteredList);
+      const seen = new Set();
+      setArticles(filteredList.filter((a) => {
+        if (seen.has(a.id)) return false;
+        seen.add(a.id);
+      return true;
+      }));
       setReachedEnd(page.length < PAGE_SIZE);
     } catch (err) {
       if (reqId !== pageLoadIdRef.current) return;
@@ -438,10 +445,14 @@ const filterArticles = useCallback((articles) => {
     });
   }, []);
 
-  const sortedArticles = useMemo(
-    () => sortArticles(articles, sortOrder),
-    [articles, sortOrder],
-  );
+  const sortedArticles = useMemo(() => {
+  const seen = new Set();
+  return sortArticles(articles, sortOrder).filter((a) => {
+    if (seen.has(a.id)) return false;
+    seen.add(a.id);
+    return true;
+  });
+  }, [articles, sortOrder]);
 
   const onArticleReadChange = useCallback((articleId, newIsRead) => {
     setArticles((prev) =>
@@ -568,6 +579,33 @@ const filterArticles = useCallback((articles) => {
         @keyframes aleymBubblePulse {
           0%, 100% { box-shadow: 0 8px 24px rgba(199,146,234,0.25), 0 0 0 0 rgba(199,146,234,0.35); }
           50%      { box-shadow: 0 8px 24px rgba(199,146,234,0.25), 0 0 0 10px rgba(199,146,234,0); }
+        }
+
+        /* Aleym select dropdown styling */
+        select.aleym-select {
+          color-scheme: dark;
+        }
+        select.aleym-select:hover {
+          border-color: rgba(199,146,234,0.25) !important;
+        }
+        select.aleym-select:focus {
+          border-color: rgba(199,146,234,0.45) !important;
+          background-color: rgba(255,255,255,0.06) !important;
+        }
+        select.aleym-select option {
+          background-color: #16161c;
+          color: #e8e6e1;
+          padding: 10px 12px;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 13px;
+        }
+        select.aleym-select option:checked,
+        select.aleym-select option:hover {
+          background: linear-gradient(0deg, rgba(199,146,234,0.2), rgba(199,146,234,0.2)) #16161c;
+          color: #e8e6e1;
+        }
+        select.aleym-select option:disabled {
+          color: #5a5a6a;
         }
       `}</style>
 
@@ -758,6 +796,7 @@ const filterArticles = useCallback((articles) => {
               }}
             >
               <select
+                className="aleym-select"
                 value={selectedSource}
                 onChange={(e) => {
                   const sourceId = e.target.value;
@@ -778,6 +817,7 @@ const filterArticles = useCallback((articles) => {
                   ))}
               </select>
               <select
+                className="aleym-select"
                 value={selectedCategory}
                 onChange={(e) => {
                   const categoryId = e.target.value;
@@ -796,6 +836,7 @@ const filterArticles = useCallback((articles) => {
                 ))}
               </select>
               <select
+                className="aleym-select"
                 value={sortOrder}
                 onChange={(e) => setSortOrder(e.target.value)}
                 style={selectStyle}

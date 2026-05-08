@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import api from "../services/aleymApi";
 import ollama from "../services/OllamaService2";
+import { useOllama } from "../contexts/OllamaContext";
 
 export default function SummaryModal({ articleId, onClose }) {
   const [article, setArticle] = useState(null);
@@ -19,6 +20,9 @@ export default function SummaryModal({ articleId, onClose }) {
   const [arCached, setArCached] = useState(false);
 
   const abortRef = useRef(null);
+
+  // Ollama status and recheck function
+  const { status: ollamaStatus, recheck } = useOllama();
 
   // Effect 1: Load article when modal opens. Don't summarize yet — wait for language pick.
   useEffect(() => {
@@ -68,6 +72,9 @@ export default function SummaryModal({ articleId, onClose }) {
   // Effect 2: When language is picked AND article is loaded, fetch / stream summary.
   useEffect(() => {
     if (!articleId || !language || !article) return;
+
+    // Don't even try to summarize if Ollama isn't available
+    if (ollamaStatus !== "available") return;
 
     let cancelled = false;
     const controller = new AbortController();
@@ -128,7 +135,7 @@ export default function SummaryModal({ articleId, onClose }) {
       cancelled = true;
       controller.abort();
     };
-  }, [articleId, language, article, sourceName]);
+  }, [articleId, language, article, sourceName, ollamaStatus]);
 
   // Escape closes the modal (unchanged)
   useEffect(() => {
@@ -307,49 +314,98 @@ export default function SummaryModal({ articleId, onClose }) {
             </div>
           )}
 
-          {/* PHASE 1 — Language picker */}
-          {!loading && !error && article && language === null && (
-            <div style={{ padding: "8px 0" }}>
-              <h2
+          {/* PHASE 0.5 — Ollama Checking State */}
+          {!loading &&
+            !error &&
+            article &&
+            ollamaStatus === "checking" &&
+            language === null && (
+              <div
                 style={{
-                  fontSize: "16px",
-                  fontFamily: "'Playfair Display', serif",
-                  fontWeight: 700,
-                  color: "#e8e6e1",
-                  margin: "0 0 6px 0",
-                  textAlign: "center",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: "12px",
+                  padding: "30px 0",
                 }}
               >
-                Choose summary language
-              </h2>
-              <p
-                style={{
-                  fontSize: "12px",
-                  color: "#6a6a7a",
-                  textAlign: "center",
-                  margin: "0 0 24px 0",
-                }}
-              >
-                اختر لغة الملخص
-              </p>
-
-              <div style={{ display: "flex", gap: "12px" }}>
-                <LanguageButton
-                  label="English"
-                  sublabel="Generate in English"
-                  cached={enCached}
-                  onClick={() => setLanguage("en")}
+                <div
+                  style={{
+                    width: "24px",
+                    height: "24px",
+                    border: "2px solid rgba(255,255,255,0.06)",
+                    borderTop: "2px solid #ffcb6b",
+                    borderRadius: "50%",
+                    animation: "spin 0.8s linear infinite",
+                  }}
                 />
-                <LanguageButton
-                  label="العربية"
-                  sublabel="إنشاء باللغة العربية"
-                  cached={arCached}
-                  onClick={() => setLanguage("ar")}
-                  rtl
-                />
+                <p style={{ color: "#5a5a6a", fontSize: "12px", margin: 0 }}>
+                  Checking Ollama…
+                </p>
               </div>
-            </div>
-          )}
+            )}
+
+          {/* PHASE 0 — Ollama not available: install prompt */}
+          {!loading &&
+            !error &&
+            article &&
+            ollamaStatus !== "available" &&
+            ollamaStatus !== "checking" &&
+            language === null && (
+              <OllamaInstallPrompt
+                status={ollamaStatus}
+                onRecheck={recheck}
+                model={ollama.model}
+              />
+            )}
+
+          {/* PHASE 1 — Language picker (only if Ollama is ready) */}
+          {!loading &&
+            !error &&
+            article &&
+            ollamaStatus === "available" &&
+            language === null && (
+              <div style={{ padding: "8px 0" }}>
+                <h2
+                  style={{
+                    fontSize: "16px",
+                    fontFamily: "'Playfair Display', serif",
+                    fontWeight: 700,
+                    color: "#e8e6e1",
+                    margin: "0 0 6px 0",
+                    textAlign: "center",
+                  }}
+                >
+                  Choose summary language
+                </h2>
+                <p
+                  style={{
+                    fontSize: "12px",
+                    color: "#6a6a7a",
+                    textAlign: "center",
+                    margin: "0 0 24px 0",
+                  }}
+                >
+                  اختر لغة الملخص
+                </p>
+
+                <div style={{ display: "flex", gap: "12px" }}>
+                  <LanguageButton
+                    label="English"
+                    sublabel="Generate in English"
+                    cached={enCached}
+                    onClick={() => setLanguage("en")}
+                  />
+                  <LanguageButton
+                    label="العربية"
+                    sublabel="إنشاء باللغة العربية"
+                    cached={arCached}
+                    onClick={() => setLanguage("ar")}
+                    rtl
+                  />
+                </div>
+              </div>
+            )}
 
           {/* PHASE 2 / 3 — Summary view */}
           {!loading && !error && article && language !== null && (
@@ -602,5 +658,177 @@ function LanguageButton({ label, sublabel, cached, onClick, rtl = false }) {
         </span>
       )}
     </button>
+  );
+}
+
+/** Shown when Ollama isn't reachable or the required model isn't installed. */
+function OllamaInstallPrompt({ status, onRecheck, model }) {
+  const [rechecking, setRechecking] = useState(false);
+
+  const handleRecheck = async () => {
+    setRechecking(true);
+    await onRecheck();
+    setRechecking(false);
+  };
+
+  const isMissingModel = status === "no-model";
+
+  return (
+    <div style={{ padding: "8px 4px", textAlign: "center" }}>
+      {/* Icon */}
+      <div
+        style={{
+          width: "56px",
+          height: "56px",
+          margin: "0 auto 16px",
+          borderRadius: "14px",
+          background: "rgba(255,203,107,0.08)",
+          border: "1px solid rgba(255,203,107,0.2)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#ffcb6b",
+        }}
+      >
+        <svg
+          width="26"
+          height="26"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+      </div>
+
+      <h2
+        style={{
+          fontSize: "17px",
+          fontFamily: "'Playfair Display', serif",
+          fontWeight: 700,
+          color: "#e8e6e1",
+          margin: "0 0 8px 0",
+        }}
+      >
+        {isMissingModel
+          ? `Model "${model}" is not installed`
+          : "Ollama is not installed"}
+      </h2>
+
+      <p
+        style={{
+          fontSize: "13px",
+          color: "#8a8a9a",
+          lineHeight: 1.6,
+          margin: "0 0 18px 0",
+        }}
+      >
+        {isMissingModel
+          ? `Ollama is running, but the ${model} model isn't downloaded yet. Pull it with the command below.`
+          : `AI summarization runs locally via Ollama. To use this feature, install Ollama and pull the ${model} model.`}
+      </p>
+
+      {/* Install steps */}
+      <div
+        style={{
+          textAlign: "left",
+          background: "rgba(0,0,0,0.3)",
+          border: "1px solid rgba(255,255,255,0.06)",
+          borderRadius: "10px",
+          padding: "14px 16px",
+          margin: "0 0 18px 0",
+        }}
+      >
+        {!isMissingModel && (
+          <>
+            <p
+              style={{
+                fontSize: "11px",
+                color: "#8a8a9a",
+                margin: "0 0 6px 0",
+                fontWeight: 600,
+                letterSpacing: "0.5px",
+                textTransform: "uppercase",
+              }}
+            >
+              Step 1 — Install Ollama
+            </p>
+            <p
+              style={{
+                fontSize: "12px",
+                color: "#c8c6c1",
+                margin: "0 0 14px 0",
+              }}
+            >
+              Download from{" "}
+              <a
+                href="https://ollama.com/download"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#ffcb6b", textDecoration: "underline" }}
+              >
+                ollama.com/download
+              </a>
+            </p>
+          </>
+        )}
+
+        <p
+          style={{
+            fontSize: "11px",
+            color: "#8a8a9a",
+            margin: "0 0 6px 0",
+            fontWeight: 600,
+            letterSpacing: "0.5px",
+            textTransform: "uppercase",
+          }}
+        >
+          {isMissingModel
+            ? "Run this command"
+            : `Step 2 — Pull the ${model} model`}
+        </p>
+        <code
+          style={{
+            display: "block",
+            fontSize: "12px",
+            color: "#ffcb6b",
+            fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+            background: "rgba(255,203,107,0.05)",
+            border: "1px solid rgba(255,203,107,0.15)",
+            borderRadius: "6px",
+            padding: "8px 10px",
+          }}
+        >
+          ollama pull {model}
+        </code>
+      </div>
+
+      {/* Recheck button */}
+      <button
+        onClick={handleRecheck}
+        disabled={rechecking}
+        style={{
+          padding: "10px 20px",
+          fontSize: "13px",
+          fontWeight: 600,
+          color: "#15151b",
+          background: rechecking
+            ? "rgba(255,203,107,0.5)"
+            : "linear-gradient(135deg, #ffcb6b, #f78c6c)",
+          border: "none",
+          borderRadius: "8px",
+          cursor: rechecking ? "wait" : "pointer",
+          fontFamily: "inherit",
+          transition: "all 0.15s ease",
+        }}
+      >
+        {rechecking ? "Checking…" : "I've installed it — check again"}
+      </button>
+    </div>
   );
 }

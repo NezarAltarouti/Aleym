@@ -1,19 +1,6 @@
 import { useState } from "react";
+import { useOllama } from "../contexts/OllamaContext";
 
-/**
- * SummarizeButton — a small icon button that triggers AI summarization.
- *
- * Designed to sit alongside the existing upvote/downvote/read buttons in
- * both NewsCard and NewsCardGrid. When clicked, it calls `onSummarize`
- * which the parent uses to open ArticlePage in summary mode.
- *
- * Props:
- *   - articleId: string (UUID) — the article to summarize
- *   - onSummarize: (articleId: string) => void — callback to open summary view
- *   - iconBtnStyle: (isHover, isActive, gradient) => object — shared button style fn
- *   - tooltipStyle: object — shared tooltip style
- *   - strokeFor: (isHover, isActive) => string — shared stroke color fn
- */
 export default function SummarizeButton({
   articleId,
   onSummarize,
@@ -22,6 +9,7 @@ export default function SummarizeButton({
   strokeFor,
 }) {
   const [hovered, setHovered] = useState(false);
+  const { status } = useOllama();
 
   const handleClick = (e) => {
     e.stopPropagation();
@@ -29,6 +17,15 @@ export default function SummarizeButton({
       onSummarize(articleId);
     }
   };
+
+  const tooltip =
+    status === "available"
+      ? "AI Summary"
+      : status === "checking"
+        ? "AI Summary (checking…)"
+        : status === "no-model"
+          ? "AI Summary — model not installed"
+          : "AI Summary — Ollama not installed";
 
   return (
     <div
@@ -38,7 +35,7 @@ export default function SummarizeButton({
     >
       <button
         type="button"
-        aria-label="Summarize with AI"
+        aria-label={tooltip}
         onClick={handleClick}
         style={iconBtnStyle(
           hovered,
@@ -46,7 +43,6 @@ export default function SummarizeButton({
           "linear-gradient(135deg, #ffcb6b, #f78c6c)",
         )}
       >
-        {/* Sparkle / AI icon */}
         <svg
           width="14"
           height="14"
@@ -66,8 +62,24 @@ export default function SummarizeButton({
           <path d="m4.93 19.07 2.83-2.83" />
           <path d="m16.24 7.76 2.83-2.83" />
         </svg>
+
+        {/* Tiny status dot — only visible when Ollama is unavailable */}
+        {status !== "available" && status !== "checking" && (
+          <span
+            style={{
+              position: "absolute",
+              top: "2px",
+              right: "2px",
+              width: "6px",
+              height: "6px",
+              borderRadius: "50%",
+              background: "#ff8a8a",
+              boxShadow: "0 0 0 2px #15151b",
+            }}
+          />
+        )}
       </button>
-      {hovered && <div style={tooltipStyle}>AI Summary</div>}
+      {hovered && <div style={tooltipStyle}>{tooltip}</div>}
     </div>
   );
 }

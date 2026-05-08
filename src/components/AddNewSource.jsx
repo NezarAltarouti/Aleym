@@ -68,9 +68,13 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
     let alive = true;
     api.categories
       .list()
-      .then((cats) => { if (alive) setCategories(cats || []); })
+      .then((cats) => {
+        if (alive) setCategories(cats || []);
+      })
       .catch((err) => console.warn("Failed to load categories:", err));
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const resetForm = () => {
@@ -118,7 +122,10 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
         } catch (linkErr) {
           // Source was created, only the category link failed.
           // Surface as a warning, don't fail the whole creation.
-          console.warn("Source created but category assignment failed:", linkErr);
+          console.warn(
+            "Source created but category assignment failed:",
+            linkErr,
+          );
         }
       }
 
@@ -200,7 +207,15 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
                 gap: "8px",
               }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
                 <polyline points="20 6 9 17 4 12" />
               </svg>
               Source created successfully!
@@ -225,7 +240,9 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
           )}
 
           {/* Form fields */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "18px" }}
+          >
             <div style={fieldGroupStyle}>
               <label style={labelStyle}>Source Name *</label>
               <input
@@ -280,6 +297,7 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
             <div style={fieldGroupStyle}>
               <label style={labelStyle}>Network</label>
               <select
+                className="aleym-select"
                 value={network}
                 onChange={(e) => setNetwork(e.target.value)}
                 style={selectStyle}
@@ -292,6 +310,7 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
             <div style={fieldGroupStyle}>
               <label style={labelStyle}>Fetcher</label>
               <select
+                className="aleym-select"
                 value={fetcher}
                 onChange={(e) => setFetcher(e.target.value)}
                 style={selectStyle}
@@ -303,6 +322,7 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
             <div style={fieldGroupStyle}>
               <label style={labelStyle}>Category</label>
               <select
+                className="aleym-select"
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 style={selectStyle}
@@ -405,7 +425,28 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
             </button>
           </div>
 
-          <style>{`@keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }`}</style>
+          <style>{`
+            @keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
+
+            select.aleym-select {
+              color-scheme: dark;
+            }
+            select.aleym-select option {
+              background-color: #16161c;
+              color: #e8e6e1;
+              padding: 10px 12px;
+              font-family: 'DM Sans', sans-serif;
+              font-size: 14px;
+            }
+            select.aleym-select option:checked,
+            select.aleym-select option:hover {
+              background: linear-gradient(0deg, rgba(199,146,234,0.2), rgba(199,146,234,0.2)) #16161c;
+              color: #e8e6e1;
+            }
+            select.aleym-select option:disabled {
+              color: #5a5a6a;
+            }
+          `}</style>
         </div>
       )}
     </Popup>

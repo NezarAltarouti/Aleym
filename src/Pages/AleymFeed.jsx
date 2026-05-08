@@ -485,6 +485,33 @@ export default function AleymFeed({
           0%, 100% { box-shadow: 0 8px 24px rgba(199,146,234,0.25), 0 0 0 0 rgba(199,146,234,0.35); }
           50%      { box-shadow: 0 8px 24px rgba(199,146,234,0.25), 0 0 0 10px rgba(199,146,234,0); }
         }
+
+        /* Aleym select dropdown styling */
+        select.aleym-select {
+          color-scheme: dark;
+        }
+        select.aleym-select:hover {
+          border-color: rgba(199,146,234,0.25) !important;
+        }
+        select.aleym-select:focus {
+          border-color: rgba(199,146,234,0.45) !important;
+          background-color: rgba(255,255,255,0.06) !important;
+        }
+        select.aleym-select option {
+          background-color: #16161c;
+          color: #e8e6e1;
+          padding: 10px 12px;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 13px;
+        }
+        select.aleym-select option:checked,
+        select.aleym-select option:hover {
+          background: linear-gradient(0deg, rgba(199,146,234,0.2), rgba(199,146,234,0.2)) #16161c;
+          color: #e8e6e1;
+        }
+        select.aleym-select option:disabled {
+          color: #5a5a6a;
+        }
       `}</style>
 
       <div
@@ -674,6 +701,7 @@ export default function AleymFeed({
               }}
             >
               <select
+                className="aleym-select"
                 value={selectedSource}
                 onChange={(e) => {
                   setSelectedSource(e.target.value);
@@ -691,6 +719,7 @@ export default function AleymFeed({
                   ))}
               </select>
               <select
+                className="aleym-select"
                 value={selectedCategory}
                 onChange={(e) => {
                   setSelectedCategory(e.target.value);
@@ -706,6 +735,7 @@ export default function AleymFeed({
                 ))}
               </select>
               <select
+                className="aleym-select"
                 value={sortOrder}
                 onChange={(e) => setSortOrder(e.target.value)}
                 style={selectStyle}

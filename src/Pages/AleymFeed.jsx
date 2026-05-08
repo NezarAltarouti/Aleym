@@ -122,34 +122,28 @@ export default function AleymFeed({
   const hasActiveSourceFilter = selectedSourceIds.length > 0;
   const hasActiveCategoryFilter = selectedCategoryIds.length > 0;
 
-  const filterArticles = useCallback((articles) => {
-    if (!hasActiveSourceFilter && !hasActiveCategoryFilter) {
-      return articles;
+
+const filterArticles = useCallback((articles) => {
+  return articles.filter((article) => {
+    // Source filter takes priority — if active, only show articles from
+    // the selected source(s), regardless of category.
+    if (hasActiveSourceFilter) {
+      return selectedSourceIds.includes(article.source);
     }
 
-    return articles.filter((article) => {
-      if (hasActiveSourceFilter && !selectedSourceIds.includes(article.source)) {
-        return false;
+    // Category filter — only runs when no source filter is active.
+    if (hasActiveCategoryFilter) {
+      const categoryId = sourceToCategoryMap[article.source];
+      if (categoryId) {
+        return selectedCategoryIds.includes(categoryId);
       }
-
-      if (hasActiveCategoryFilter) {
-        const categoryId = sourceToCategoryMap[article.source];
-        if (categoryId) {
-          return selectedCategoryIds.includes(categoryId);
-        }
-        return true;
-      }
-
+      // Article's source has no known category — include it to be safe.
       return true;
-    });
-  }, [hasActiveSourceFilter, hasActiveCategoryFilter, selectedSourceIds, selectedCategoryIds, sourceToCategoryMap]);
+    }
 
-  useEffect(() => {
-    if (articles.length === 0) return;
-    if (!hasActiveSourceFilter && !hasActiveCategoryFilter) return;
-
-    setArticles((prevArticles) => filterArticles(prevArticles));
-  }, [filterArticles, articles.length, hasActiveCategoryFilter, hasActiveSourceFilter]);
+    return true;
+  });
+}, [hasActiveSourceFilter, hasActiveCategoryFilter, selectedSourceIds, selectedCategoryIds, sourceToCategoryMap]);
 
   // -------- Debounce search --------
   useEffect(() => {

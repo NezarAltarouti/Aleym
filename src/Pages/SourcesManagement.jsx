@@ -10,6 +10,7 @@ import AddNewSource from "../components/AddNewSource";
 import NewCategory from "../components/NewCategory";
 import DeleteCategory from "../components/DeleteCategory";
 import api from "../services/aleymApi";
+import { useData } from "../contexts/DataContext";
 
 function EditSourceModal({ source, onClose, onSaved }) {
   const [name, setName] = useState(source.name || "");
@@ -658,6 +659,7 @@ function StatsBar({ sources }) {
 }
 
 export default function SourcesManagement({ navigateTo }) {
+  const { refreshAll } = useData();
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     const saved = localStorage.getItem("sidebarOpen");
     return saved !== null ? JSON.parse(saved) : true;
@@ -682,6 +684,11 @@ export default function SourcesManagement({ navigateTo }) {
     });
     return () => cancelAnimationFrame(raf);
   }, []);
+
+  const handleRefresh = async () => {
+    await loadData();
+    refreshAll();                            
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -938,7 +945,7 @@ export default function SourcesManagement({ navigateTo }) {
                     Delete Category
                   </button>
                 }
-                onCategoryDeleted={loadData}
+                onCategoryDeleted={handleRefresh}
               />
 
               <NewCategory
@@ -975,7 +982,7 @@ export default function SourcesManagement({ navigateTo }) {
                     Add Category
                   </button>
                 }
-                onCategoryAdded={loadData}
+                onCategoryAdded={handleRefresh}
               />
 
               <AddNewSource
@@ -1012,7 +1019,7 @@ export default function SourcesManagement({ navigateTo }) {
                     Add Source
                   </button>
                 }
-                onSourceAdded={loadData}
+                onSourceAdded={handleRefresh}
               />
             </div>
           </div>
@@ -1452,7 +1459,7 @@ export default function SourcesManagement({ navigateTo }) {
         <EditSourceModal
           source={editingSource}
           onClose={() => setEditingSource(null)}
-          onSaved={loadData}
+          onSaved={handleRefresh}
         />
       )}
 

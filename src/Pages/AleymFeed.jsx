@@ -44,6 +44,8 @@ export default function AleymFeed({
   compactMode = false,
   selectedArticleId = null,
   onSummarize,
+  selectedCategoryIds = [],
+  selectedSourceIds = [],
 }) {
   // -------- UI state --------
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -61,6 +63,7 @@ export default function AleymFeed({
   const [articles, setArticles] = useState([]);
   const [sources, setSources] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [sourceToCategoryMap, setSourceToCategoryMap] = useState({});
 
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -72,8 +75,9 @@ export default function AleymFeed({
   const [pendingNewArticles, setPendingNewArticles] = useState([]);
 
   // -------- Filters --------
-  const [selectedSource, setSelectedSource] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("");
+  // Derive dropdown values from props to sync with sidebar
+  const selectedSource = selectedSourceIds.length === 1 ? selectedSourceIds[0] : "";
+  const selectedCategory = selectedCategoryIds.length === 1 ? selectedCategoryIds[0] : "";
   const [sortOrder, setSortOrder] = useState("desc");
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -115,6 +119,38 @@ export default function AleymFeed({
     return m;
   }, [sources]);
 
+  const hasActiveSourceFilter = selectedSourceIds.length > 0;
+  const hasActiveCategoryFilter = selectedCategoryIds.length > 0;
+
+  const filterArticles = useCallback((articles) => {
+    if (!hasActiveSourceFilter && !hasActiveCategoryFilter) {
+      return articles;
+    }
+
+    return articles.filter((article) => {
+      if (hasActiveSourceFilter && !selectedSourceIds.includes(article.source)) {
+        return false;
+      }
+
+      if (hasActiveCategoryFilter) {
+        const categoryId = sourceToCategoryMap[article.source];
+        if (categoryId) {
+          return selectedCategoryIds.includes(categoryId);
+        }
+        return true;
+      }
+
+      return true;
+    });
+  }, [hasActiveSourceFilter, hasActiveCategoryFilter, selectedSourceIds, selectedCategoryIds, sourceToCategoryMap]);
+
+  useEffect(() => {
+    if (articles.length === 0) return;
+    if (!hasActiveSourceFilter && !hasActiveCategoryFilter) return;
+
+    setArticles((prevArticles) => filterArticles(prevArticles));
+  }, [filterArticles, articles.length, hasActiveCategoryFilter, hasActiveSourceFilter]);
+
   // -------- Debounce search --------
   useEffect(() => {
     const t = setTimeout(
@@ -124,18 +160,38 @@ export default function AleymFeed({
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // -------- Load sources & categories once --------
+  // -------- Source-to-category mapping (for local filtering) --------
+  // Load sources & categories once, building proper category mappings
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [srcData, catData] = await Promise.all([
-          api.sources.list(),
-          api.categories.list(),
-        ]);
+        const catData = await api.categories.list();
         if (!alive) return;
-        setSources(srcData || []);
         setCategories(catData || []);
+
+        // Build source-to-category mapping by fetching sources for each category
+        const sourceToCatMap = {};
+        const allSources = [];
+        
+        await Promise.all(
+          (catData || []).map(async (cat) => {
+            try {
+              const srcList = await api.categories.sources(cat.id);
+              (srcList || []).forEach((src) => {
+                sourceToCatMap[src.id] = cat.id;
+                allSources.push(src);
+              });
+            } catch (err) {
+              console.debug("Failed to load sources for category:", cat.id, err);
+            }
+          }),
+        );
+
+        if (alive) {
+          setSources(allSources);
+          setSourceToCategoryMap(sourceToCatMap);
+        }
       } catch (err) {
         console.error("Failed to load sources/categories:", err);
       }
@@ -148,27 +204,20 @@ export default function AleymFeed({
   // -------- Filter args --------
   const buildFilterArgs = useCallback(() => {
     const q = {};
-    if (selectedSource) q.source_id = selectedSource;
-    else if (selectedCategory) q.category_id = selectedCategory;
+    if (selectedSourceIds.length === 1) {
+      q.source_id = selectedSourceIds[0];
+    } else if (selectedCategoryIds.length === 1) {
+      q.category_id = selectedCategoryIds[0];
+    }
+
     if (searchQuery) q.query = searchQuery;
     return q;
-  }, [selectedSource, selectedCategory, searchQuery]);
+  }, [selectedSourceIds, selectedCategoryIds, searchQuery]);
+
 
   // -------- Reset & load first page when filters change --------
   const loadFirstPage = useCallback(async () => {
     const reqId = ++pageLoadIdRef.current;
-
-    if (selectedSource) {
-      const src = sourceMap[selectedSource];
-      if (src && !src.is_enabled) {
-        setArticles([]);
-        setReachedEnd(true);
-        setLoadingInitial(false);
-        setError(null);
-        setPendingNewArticles([]);
-        return;
-      }
-    }
 
     setLoadingInitial(true);
     setError(null);
@@ -176,16 +225,41 @@ export default function AleymFeed({
     setPendingNewArticles([]);
 
     try {
-      const data = await api.articles.list({
+      let page = await api.articles.list({
         ...buildFilterArgs(),
         limit: PAGE_SIZE,
         sort_order: sortOrder,
       });
       if (reqId !== pageLoadIdRef.current) return;
 
-      const list = data || [];
-      setArticles(list);
-      setReachedEnd(list.length < PAGE_SIZE);
+      page = page || [];
+      let filteredList = filterArticles(page);
+      let attempts = 0;
+      while (
+        filteredList.length === 0 &&
+        page.length === PAGE_SIZE &&
+        attempts < 8
+      ) {
+        const last = page[page.length - 1];
+        const cursor = cursorOf(last);
+        const cursorParams =
+          sortOrder === "desc" ? { before: cursor } : { after: cursor };
+
+        page = await api.articles.list({
+          ...buildFilterArgs(),
+          ...cursorParams,
+          limit: PAGE_SIZE,
+          sort_order: sortOrder,
+        });
+        if (reqId !== pageLoadIdRef.current) return;
+
+        page = page || [];
+        filteredList = filterArticles(page);
+        attempts += 1;
+      }
+
+      setArticles(filteredList);
+      setReachedEnd(page.length < PAGE_SIZE);
     } catch (err) {
       if (reqId !== pageLoadIdRef.current) return;
       setError(err.message || "Failed to load articles");
@@ -194,12 +268,11 @@ export default function AleymFeed({
     } finally {
       if (reqId === pageLoadIdRef.current) setLoadingInitial(false);
     }
-  }, [buildFilterArgs, selectedSource, sourceMap, sortOrder]);
+  }, [buildFilterArgs, sortOrder, filterArticles]);
 
   useEffect(() => {
     loadFirstPage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedSource, selectedCategory, searchQuery, sortOrder, sourceMap]);
+  }, [loadFirstPage]);
 
   // -------- Infinite scroll: load next page --------
   const loadMore = useCallback(async () => {
@@ -210,37 +283,51 @@ export default function AleymFeed({
     setLoadingMore(true);
 
     try {
-      const last = articles[articles.length - 1];
-      const cursor = cursorOf(last);
-
-      const cursorParams =
+      let page = [];
+      let last = articles[articles.length - 1];
+      let cursor = cursorOf(last);
+      let cursorParams =
         sortOrder === "desc" ? { before: cursor } : { after: cursor };
+      let attempts = 0;
 
-      const data = await api.articles.list({
-        ...buildFilterArgs(),
-        ...cursorParams,
-        limit: PAGE_SIZE,
-        sort_order: sortOrder,
-      });
-      if (reqId !== pageLoadIdRef.current) return;
+      do {
+        const data = await api.articles.list({
+          ...buildFilterArgs(),
+          ...cursorParams,
+          limit: PAGE_SIZE,
+          sort_order: sortOrder,
+        });
+        if (reqId !== pageLoadIdRef.current) return;
 
-      const page = data || [];
-      if (page.length === 0) {
-        setReachedEnd(true);
-        return;
-      }
+        page = data || [];
+        const fresh = filterArticles(page);
+        if (fresh.length > 0) {
+          setArticles((prev) => {
+            const seen = new Set(prev.map((a) => a.id));
+            const filteredFresh = fresh.filter((a) => !seen.has(a.id));
+            if (filteredFresh.length === 0) {
+              setReachedEnd(page.length < PAGE_SIZE);
+              return prev;
+            }
+            return [...prev, ...filteredFresh];
+          });
 
-      setArticles((prev) => {
-        const seen = new Set(prev.map((a) => a.id));
-        const fresh = page.filter((a) => !seen.has(a.id));
-        if (fresh.length === 0) {
-          setReachedEnd(true);
-          return prev;
+          if (page.length < PAGE_SIZE) setReachedEnd(true);
+          return;
         }
-        return [...prev, ...fresh];
-      });
 
-      if (page.length < PAGE_SIZE) setReachedEnd(true);
+        if (page.length < PAGE_SIZE) {
+          setReachedEnd(true);
+          return;
+        }
+
+        last = page[page.length - 1];
+        cursor = cursorOf(last);
+        cursorParams = sortOrder === "desc" ? { before: cursor } : { after: cursor };
+        attempts += 1;
+      } while (attempts < 8);
+
+      setReachedEnd(page.length < PAGE_SIZE);
     } catch (err) {
       console.error("loadMore failed:", err);
     } finally {
@@ -249,6 +336,7 @@ export default function AleymFeed({
   }, [
     articles,
     buildFilterArgs,
+    filterArticles,
     loadingInitial,
     loadingMore,
     reachedEnd,
@@ -470,6 +558,8 @@ export default function AleymFeed({
             setSidebarOpen(newVal);
           }}
           navigateTo={navigateTo}
+          selectedCategoryIds={selectedCategoryIds}
+          selectedSourceIds={selectedSourceIds}
           disableTransition={!enableTransition}
         />
       )}
@@ -676,8 +766,11 @@ export default function AleymFeed({
               <select
                 value={selectedSource}
                 onChange={(e) => {
-                  setSelectedSource(e.target.value);
-                  if (e.target.value) setSelectedCategory("");
+                  const sourceId = e.target.value;
+                  navigateTo("aleym", {
+                    categoryIds: [],
+                    sourceIds: sourceId ? [sourceId] : [],
+                  });
                 }}
                 style={selectStyle}
               >
@@ -693,8 +786,11 @@ export default function AleymFeed({
               <select
                 value={selectedCategory}
                 onChange={(e) => {
-                  setSelectedCategory(e.target.value);
-                  if (e.target.value) setSelectedSource("");
+                  const categoryId = e.target.value;
+                  navigateTo("aleym", {
+                    categoryIds: categoryId ? [categoryId] : [],
+                    sourceIds: [],
+                  });
                 }}
                 style={selectStyle}
               >

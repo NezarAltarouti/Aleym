@@ -22,6 +22,8 @@ export default function ForYou({
   compactMode = false,
   selectedArticleId = null,
   onSummarize,
+  selectedCategoryIds = [],
+  selectedSourceIds = [],
 }) {
   // -------- UI state --------
   const [sidebarOpen, setSidebarOpen] = useState(() => {
@@ -168,6 +170,8 @@ export default function ForYou({
             setSidebarOpen(newVal);
           }}
           navigateTo={navigateTo}
+          selectedCategoryIds={selectedCategoryIds}
+          selectedSourceIds={selectedSourceIds}
           disableTransition={!enableTransition}
         />
       )}

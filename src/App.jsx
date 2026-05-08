@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { DataProvider } from "./contexts/DataContext";
 import SourcesManagements from "./Pages/SourcesManagement";
 import AleymFeed from "./Pages/AleymFeed";
 import ArticlePage from "./Pages/ArticlePage";
@@ -65,6 +66,10 @@ export default function App() {
       ? initial.articleReturnTo
       : "aleym",
   );
+  const [feedFilter, setFeedFilter] = useState({
+    categoryIds: [],
+    sourceIds: [],
+  });
 
   // ---- AI summary modal state ----
   // When non-null, the SummaryModal popup is displayed for this article.
@@ -93,6 +98,23 @@ export default function App() {
       setArticleReturnTo(VALID_RETURN_PAGES.has(page) ? page : "aleym");
       setPage("article");
       return;
+    }
+
+    if (p === "aleym") {
+      if (data && ("categoryIds" in data || "sourceIds" in data)) {
+        setFeedFilter({
+          categoryIds: Array.isArray(data.categoryIds)
+            ? data.categoryIds
+            : data.categoryIds
+            ? [data.categoryIds]
+            : [],
+          sourceIds: Array.isArray(data.sourceIds)
+            ? data.sourceIds
+            : data.sourceIds
+            ? [data.sourceIds]
+            : [],
+        });
+      }
     }
 
     // Any other navigation — clear the slide panel as we leave.
@@ -139,6 +161,8 @@ export default function App() {
             compactMode={showPanel}
             selectedArticleId={selectedArticleId}
             onSummarize={setSummaryArticleId}
+            selectedCategoryIds={feedFilter.categoryIds}
+            selectedSourceIds={feedFilter.sourceIds}
           />
         </div>
         {showPanel && (
@@ -165,8 +189,9 @@ export default function App() {
   };
 
   return (
-    <>
-      <style>{`
+    <DataProvider>
+      <>
+        <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@700&family=Literata:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300;1,400&family=Source+Serif+4:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=IBM+Plex+Mono:wght@300;400;500&display=swap');
 
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -226,5 +251,6 @@ export default function App() {
         onClose={() => setSummaryArticleId(null)}
       />
     </>
+    </DataProvider>
   );
 }

@@ -55,6 +55,10 @@ export default function DeleteCategory({ trigger, onCategoryDeleted }) {
         selectedIds.map((id) => api.categories.remove(id))
       );
 
+      const updatedData = await api.categories.list();
+      setCategories(updatedData || []);
+      setSelectedIds([]);
+
       setSuccess(true);
       if (onCategoryDeleted) onCategoryDeleted();
 

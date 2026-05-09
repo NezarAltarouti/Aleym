@@ -24,6 +24,7 @@ function EditSourceModal({ source, onClose, onSaved }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
   const [hoveredBtn, setHoveredBtn] = useState(null);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   useEffect(() => {
     const handler = (e) => {
@@ -248,74 +249,141 @@ function EditSourceModal({ source, onClose, onSaved }) {
           </div>
           <div>
             <label style={label}>Categories</label>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: "6px",
-                maxHeight: "160px",
-                overflowY: "auto",
-                padding: "4px",
-                background: "rgba(255,255,255,0.02)",
-                borderRadius: "10px",
-                border: "1px solid rgba(255,255,255,0.08)",
-              }}
-            >
-              {categories.length === 0 ? (
-                <p style={{ fontSize: "12px", color: "#5a5a6a", padding: "8px 10px", margin: 0 }}>
-                  No categories available
-                </p>
-              ) : (
-                categories.map((c) => {
-                  const checked = selectedCategoryIds.has(c.id);
+
+            {/* Selected category pills */}
+            {selectedCategoryIds.size > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                {[...selectedCategoryIds].map((id) => {
+                  const cat = categories.find((c) => c.id === id);
+                  if (!cat) return null;
                   return (
                     <div
-                      key={c.id}
-                      onClick={() => {
-                        setSelectedCategoryIds((prev) => {
-                          const next = new Set(prev);
-                          checked ? next.delete(c.id) : next.add(c.id);
-                          return next;
-                        });
-                      }}
+                      key={id}
                       style={{
-                        display: "flex",
+                        display: "inline-flex",
                         alignItems: "center",
-                        gap: "10px",
-                        padding: "8px 10px",
-                        borderRadius: "8px",
-                        cursor: "pointer",
-                        background: checked ? "rgba(130,170,255,0.08)" : "transparent",
-                        border: `1px solid ${checked ? "rgba(130,170,255,0.2)" : "transparent"}`,
-                        transition: "all 0.15s ease",
+                        gap: "6px",
+                        padding: "4px 10px",
+                        borderRadius: "20px",
+                        background: "rgba(130,170,255,0.12)",
+                        border: "1px solid rgba(130,170,255,0.25)",
+                        fontSize: "12px",
+                        color: "#82aaff",
+                        fontWeight: 500,
                       }}
                     >
-                      <div
-                        style={{
-                          width: "16px",
-                          height: "16px",
-                          borderRadius: "4px",
-                          border: `2px solid ${checked ? "#82aaff" : "#5a5a6a"}`,
-                          background: checked ? "#82aaff" : "transparent",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          flexShrink: 0,
-                          transition: "all 0.15s ease",
-                        }}
+                      {cat.name}
+                      <span
+                        onClick={() =>
+                          setSelectedCategoryIds((prev) => {
+                            const next = new Set(prev);
+                            next.delete(id);
+                            return next;
+                          })
+                        }
+                        style={{ cursor: "pointer", lineHeight: 1, opacity: 0.7, fontSize: "14px" }}
                       >
-                        {checked && (
-                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#0e0e12" strokeWidth="3" strokeLinecap="round">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                      </div>
-                      <span style={{ fontSize: "13px", color: checked ? "#82aaff" : "#b0b0c0", transition: "color 0.15s ease" }}>
-                        {c.name}
+                        ×
                       </span>
                     </div>
                   );
-                })
+                })}
+              </div>
+            )}
+
+            {/* Dropdown trigger */}
+            <div style={{ position: "relative" }}>
+              <div
+                onClick={() => setDropdownOpen((o) => !o)}
+                style={{
+                  ...inputStyle,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  borderColor: dropdownOpen ? "rgba(199,146,234,0.4)" : "rgba(255,255,255,0.08)",
+                }}
+              >
+                <span style={{ color: selectedCategoryIds.size === 0 ? "#5a5a6a" : "#e8e6e1", fontSize: "14px" }}>
+                  {selectedCategoryIds.size === 0
+                    ? "Select categories…"
+                    : `${selectedCategoryIds.size} selected`}
+                </span>
+                <svg
+                  width="12"
+                  height="8"
+                  viewBox="0 0 12 8"
+                  fill="none"
+                  style={{
+                    flexShrink: 0,
+                    transition: "transform 0.2s ease",
+                    transform: dropdownOpen ? "rotate(180deg)" : "rotate(0deg)",
+                  }}
+                >
+                  <path d="M1 1.5L6 6.5L11 1.5" stroke="#6a6a7a" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+
+              {/* Dropdown menu */}
+              {dropdownOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 6px)",
+                    left: 0,
+                    right: 0,
+                    background: "#16161c",
+                    border: "1px solid rgba(255,255,255,0.1)",
+                    borderRadius: "10px",
+                    boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+                    zIndex: 100,
+                    maxHeight: "180px",
+                    overflowY: "auto",
+                    padding: "4px",
+                  }}
+                >
+                  {categories.length === 0 ? (
+                    <p style={{ fontSize: "12px", color: "#5a5a6a", padding: "10px 12px", margin: 0 }}>
+                      No categories available
+                    </p>
+                  ) : (
+                    categories.map((c) => {
+                      const selected = selectedCategoryIds.has(c.id);
+                      return (
+                        <div
+                          key={c.id}
+                          onClick={() => {
+                            setSelectedCategoryIds((prev) => {
+                              const next = new Set(prev);
+                              selected ? next.delete(c.id) : next.add(c.id);
+                              return next;
+                            });
+                          }}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "9px 12px",
+                            borderRadius: "7px",
+                            cursor: "pointer",
+                            background: selected ? "rgba(130,170,255,0.08)" : "transparent",
+                            transition: "background 0.15s ease",
+                          }}
+                        >
+                          <span style={{ fontSize: "13px", color: selected ? "#82aaff" : "#b0b0c0" }}>
+                            {c.name}
+                          </span>
+                          {selected && (
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#82aaff" strokeWidth="2.5" strokeLinecap="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -808,6 +876,7 @@ useEffect(() => {
     try {
       await api.sources.remove(sourceId);
       await loadData();
+      refreshAll();
     } catch (err) {
       alert("Failed to delete source: " + err.message);
     } finally {

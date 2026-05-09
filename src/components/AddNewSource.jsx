@@ -56,7 +56,7 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
   const [network, setNetwork] = useState("Clear");
   const [fetcher, setFetcher] = useState("FeedRs");
   const [description, setDescription] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState(new Set());
 
   // Submission state
   const [saving, setSaving] = useState(false);
@@ -83,7 +83,7 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
     setNetwork("Clear");
     setFetcher("FeedRs");
     setDescription("");
-    setSelectedCategory("");
+    setSelectedCategoryIds(new Set());
     setError(null);
     setSuccess(false);
   };
@@ -116,17 +116,14 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
       const sourceId = await api.sources.create(payload);
 
       // Step 2: Assign category if one was selected
-      if (selectedCategory && sourceId) {
-        try {
-          await api.sources.linkCategory(sourceId, selectedCategory);
-        } catch (linkErr) {
-          // Source was created, only the category link failed.
-          // Surface as a warning, don't fail the whole creation.
-          console.warn(
-            "Source created but category assignment failed:",
-            linkErr,
-          );
-        }
+      if (selectedCategoryIds.size > 0 && sourceId) {
+        await Promise.all(
+          [...selectedCategoryIds].map((id) =>
+            api.sources.linkCategory(sourceId, id).catch((err) =>
+              console.warn("Source created but category assignment failed:", err)
+            )
+          )
+        );
       }
 
       setSuccess(true);
@@ -319,21 +316,78 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
               </select>
             </div>
 
-            <div style={fieldGroupStyle}>
-              <label style={labelStyle}>Category</label>
-              <select
-                className="aleym-select"
-                value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                style={selectStyle}
+             <div style={fieldGroupStyle}>
+              <label style={labelStyle}>Categories</label>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "6px",
+                  maxHeight: "160px",
+                  overflowY: "auto",
+                  padding: "4px",
+                  background: "rgba(255,255,255,0.02)",
+                  borderRadius: "10px",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
               >
-                <option value="">None</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                {categories.length === 0 ? (
+                  <p style={{ fontSize: "12px", color: "#5a5a6a", padding: "8px 10px", margin: 0 }}>
+                    No categories available
+                  </p>
+                ) : (
+                  categories.map((c) => {
+                    const checked = selectedCategoryIds.has(c.id);
+                    return (
+                      <div
+                        key={c.id}
+                        onClick={() => {
+                          setSelectedCategoryIds((prev) => {
+                            const next = new Set(prev);
+                            checked ? next.delete(c.id) : next.add(c.id);
+                            return next;
+                          });
+                        }}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          cursor: "pointer",
+                          background: checked ? "rgba(130,170,255,0.08)" : "transparent",
+                          border: `1px solid ${checked ? "rgba(130,170,255,0.2)" : "transparent"}`,
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: "16px",
+                            height: "16px",
+                            borderRadius: "4px",
+                            border: `2px solid ${checked ? "#82aaff" : "#5a5a6a"}`,
+                            background: checked ? "#82aaff" : "transparent",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            flexShrink: 0,
+                            transition: "all 0.15s ease",
+                          }}
+                        >
+                          {checked && (
+                            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#0e0e12" strokeWidth="3" strokeLinecap="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                        </div>
+                        <span style={{ fontSize: "13px", color: checked ? "#82aaff" : "#b0b0c0", transition: "color 0.15s ease" }}>
+                          {c.name}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
 

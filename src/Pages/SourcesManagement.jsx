@@ -10,6 +10,7 @@ import AddNewSource from "../components/AddNewSource";
 import NewCategory from "../components/NewCategory";
 import DeleteCategory from "../components/DeleteCategory";
 import api from "../services/aleymApi";
+import { useData } from "../contexts/DataContext";
 
 function EditSourceModal({ source, onClose, onSaved }) {
   const [name, setName] = useState(source.name || "");
@@ -17,8 +18,8 @@ function EditSourceModal({ source, onClose, onSaved }) {
   const [network, setNetwork] = useState(source.networktype || "Clear");
   const [isEnabled, setIsEnabled] = useState(source.is_enabled ?? true);
   const [categories, setCategories] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState("");
-  const [originalCategoryId, setOriginalCategoryId] = useState("");
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState(new Set());
+  const [originalCategoryIds, setOriginalCategoryIds] = useState(new Set());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
@@ -42,10 +43,10 @@ function EditSourceModal({ source, onClose, onSaved }) {
         ]);
         if (!alive) return;
         setCategories(cats || []);
-        if (srcCats && srcCats.length > 0) {
-          setSelectedCategory(srcCats[0].id);
-          setOriginalCategoryId(srcCats[0].id);
-        }
+        const ids = new Set((srcCats || []).map((c) => c.id));
+        setSelectedCategoryIds(ids);
+        setOriginalCategoryIds(ids);
+
       } catch (err) {
         console.warn("Failed to load category data:", err);
       }
@@ -69,18 +70,13 @@ function EditSourceModal({ source, onClose, onSaved }) {
         is_enabled: isEnabled,
       });
 
-      if (selectedCategory !== originalCategoryId) {
-        if (originalCategoryId) {
-          await api.sources
-            .unlinkCategory(source.id, originalCategoryId)
-            .catch((err) => console.warn("Failed to unlink old category:", err));
-        }
-        if (selectedCategory) {
-          await api.sources
-            .linkCategory(source.id, selectedCategory)
-            .catch((err) => console.warn("Failed to link new category:", err));
-        }
-      }
+      const toAdd    = [...selectedCategoryIds].filter((id) => !originalCategoryIds.has(id));
+      const toRemove = [...originalCategoryIds].filter((id) => !selectedCategoryIds.has(id));
+      await Promise.all([
+          ...toRemove.map((id) => api.sources.unlinkCategory(source.id, id).catch(console.warn)),
+          ...toAdd.map((id)    => api.sources.linkCategory(source.id, id).catch(console.warn)),
+      ]);
+      
       setSuccess(true);
       if (onSaved) onSaved();
       setTimeout(() => onClose(), 800);
@@ -251,19 +247,77 @@ function EditSourceModal({ source, onClose, onSaved }) {
             </select>
           </div>
           <div>
-            <label style={label}>Category</label>
-            <select
-              value={selectedCategory}
-              onChange={(e) => setSelectedCategory(e.target.value)}
-              style={selectStyle}
+            <label style={label}>Categories</label>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "6px",
+                maxHeight: "160px",
+                overflowY: "auto",
+                padding: "4px",
+                background: "rgba(255,255,255,0.02)",
+                borderRadius: "10px",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
             >
-              <option value="">None</option>
-              {categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+              {categories.length === 0 ? (
+                <p style={{ fontSize: "12px", color: "#5a5a6a", padding: "8px 10px", margin: 0 }}>
+                  No categories available
+                </p>
+              ) : (
+                categories.map((c) => {
+                  const checked = selectedCategoryIds.has(c.id);
+                  return (
+                    <div
+                      key={c.id}
+                      onClick={() => {
+                        setSelectedCategoryIds((prev) => {
+                          const next = new Set(prev);
+                          checked ? next.delete(c.id) : next.add(c.id);
+                          return next;
+                        });
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        cursor: "pointer",
+                        background: checked ? "rgba(130,170,255,0.08)" : "transparent",
+                        border: `1px solid ${checked ? "rgba(130,170,255,0.2)" : "transparent"}`,
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: "16px",
+                          height: "16px",
+                          borderRadius: "4px",
+                          border: `2px solid ${checked ? "#82aaff" : "#5a5a6a"}`,
+                          background: checked ? "#82aaff" : "transparent",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          flexShrink: 0,
+                          transition: "all 0.15s ease",
+                        }}
+                      >
+                        {checked && (
+                          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#0e0e12" strokeWidth="3" strokeLinecap="round">
+                            <polyline points="20 6 9 17 4 12" />
+                          </svg>
+                        )}
+                      </div>
+                      <span style={{ fontSize: "13px", color: checked ? "#82aaff" : "#b0b0c0", transition: "color 0.15s ease" }}>
+                        {c.name}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
           <div>
             <label style={label}>Status</label>
@@ -658,6 +712,7 @@ function StatsBar({ sources }) {
 }
 
 export default function SourcesManagement({ navigateTo }) {
+  const { refreshAll, sources: ctxSources, categories: ctxCategories } = useData();
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     const saved = localStorage.getItem("sidebarOpen");
     return saved !== null ? JSON.parse(saved) : true;
@@ -683,16 +738,27 @@ export default function SourcesManagement({ navigateTo }) {
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  const handleRefresh = async () => {
+    await loadData();
+    refreshAll();                            
+  };
+
   const loadData = async () => {
     setLoading(true);
     setError(null);
     try {
       const srcData = await api.sources.list();
-      setSources(srcData || []);
+      const uniqueSources = Object.values(
+        (srcData || []).reduce((acc, s) => {
+          if (!acc[s.id]) acc[s.id] = s;
+          return acc;
+        }, {})
+      );
+setSources(uniqueSources);
 
       const catMap = {};
-      await Promise.all(
-        (srcData || []).map(async (source) => {
+        await Promise.all(
+          uniqueSources.map(async (source) => {
           try {
             const cats = await api.sources.categories(source.id);
             catMap[source.id] = (cats || []).map((c) => c.name).join(", ") || "—";
@@ -708,6 +774,29 @@ export default function SourcesManagement({ navigateTo }) {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+  if (!ctxSources || Object.keys(ctxSources).length === 0) return;
+  const preliminary = {};
+  Object.entries(ctxSources).forEach(([catId, srcs]) => {
+    srcs.forEach((src) => {
+      const catName = ctxCategories.find((c) => String(c.id) === String(catId))?.name;
+      if (!catName) return;
+      if (preliminary[src.id]) {
+        preliminary[src.id] += `, ${catName}`;
+      } else {
+        preliminary[src.id] = catName;
+      }
+    });
+  });
+  setSourceCategoryMap((prev) =>
+    Object.keys(prev).length === 0 ? preliminary : prev
+  );
+}, [ctxSources, ctxCategories]);
+
+useEffect(() => {
+  loadData();
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -938,7 +1027,7 @@ export default function SourcesManagement({ navigateTo }) {
                     Delete Category
                   </button>
                 }
-                onCategoryDeleted={loadData}
+                onCategoryDeleted={handleRefresh}
               />
 
               <NewCategory
@@ -975,7 +1064,7 @@ export default function SourcesManagement({ navigateTo }) {
                     Add Category
                   </button>
                 }
-                onCategoryAdded={loadData}
+                onCategoryAdded={handleRefresh}
               />
 
               <AddNewSource
@@ -1012,7 +1101,7 @@ export default function SourcesManagement({ navigateTo }) {
                     Add Source
                   </button>
                 }
-                onSourceAdded={loadData}
+                onSourceAdded={handleRefresh}
               />
             </div>
           </div>
@@ -1452,7 +1541,7 @@ export default function SourcesManagement({ navigateTo }) {
         <EditSourceModal
           source={editingSource}
           onClose={() => setEditingSource(null)}
-          onSaved={loadData}
+          onSaved={handleRefresh}
         />
       )}
 

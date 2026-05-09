@@ -269,26 +269,32 @@ export default function NewsCard({
     >
       <div
         style={{
-          background: hovered
-            ? "linear-gradient(135deg, rgba(199,146,234,0.06) 0%, rgba(130,170,255,0.06) 100%)"
-            : "rgba(255,255,255,0.02)",
+          background: readState
+            ? "rgba(255,255,255,0.01)"
+            : hovered
+              ? "linear-gradient(135deg, rgba(199,146,234,0.06) 0%, rgba(130,170,255,0.06) 100%)"
+              : "rgba(255,255,255,0.02)",
           border: "1px solid",
-          borderColor: hovered
-            ? "rgba(199,146,234,0.2)"
-            : "rgba(255,255,255,0.06)",
+          borderColor: readState
+            ? "rgba(255,255,255,0.03)"
+            : hovered
+              ? "rgba(199,146,234,0.2)"
+              : "rgba(255,255,255,0.06)",
           borderRadius: "16px",
           padding: "24px",
           transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
-          transform: hovered ? "translateY(-4px)" : "translateY(0)",
-          boxShadow: hovered
-            ? "0 12px 40px rgba(199,146,234,0.1), 0 4px 12px rgba(0,0,0,0.3)"
-            : "0 1px 4px rgba(0,0,0,0.2)",
+          transform: hovered && !readState ? "translateY(-4px)" : "translateY(0)",
+          boxShadow:
+            hovered && !readState
+              ? "0 12px 40px rgba(199,146,234,0.1), 0 4px 12px rgba(0,0,0,0.3)"
+              : "0 1px 4px rgba(0,0,0,0.2)",
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
           minHeight: "240px",
           height: "100%",
-          opacity: readState ? 0.72 : 1,
+          opacity: readState ? 0.55 : 1,
+          filter: readState ? "grayscale(0.6)" : "none",
         }}
       >
         {/* Top section */}
@@ -310,14 +316,20 @@ export default function NewsCard({
                 fontWeight: 600,
                 letterSpacing: "1.5px",
                 textTransform: "uppercase",
-                color: "#82aaff",
-                background: "rgba(130,170,255,0.08)",
-                border: "1px solid rgba(130,170,255,0.12)",
+                color: readState ? "#6a6a7a" : "#82aaff",
+                background: readState
+                  ? "rgba(255,255,255,0.03)"
+                  : "rgba(130,170,255,0.08)",
+                border: "1px solid",
+                borderColor: readState
+                  ? "rgba(255,255,255,0.06)"
+                  : "rgba(130,170,255,0.12)",
                 borderRadius: "6px",
                 padding: "3px 10px",
                 whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
+                transition: "all 0.25s ease",
               }}
             >
               {source || "News"}
@@ -534,7 +546,11 @@ export default function NewsCard({
               fontSize: "15px",
               fontWeight: 600,
               lineHeight: 1.45,
-              color: hovered ? "#e8e6e1" : "#c8c6c1",
+              color: readState
+                ? "#7a7a8a"
+                : hovered
+                  ? "#e8e6e1"
+                  : "#c8c6c1",
               margin: 0,
               transition: "color 0.2s ease",
               display: "-webkit-box",
@@ -603,17 +619,32 @@ export default function NewsCard({
             <span
               style={{
                 marginLeft: "auto",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "5px",
                 fontSize: "10px",
-                fontWeight: 600,
+                fontWeight: 700,
                 letterSpacing: "1px",
                 textTransform: "uppercase",
-                color: "#5a5a6a",
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.06)",
+                color: "#82d982",
+                background: "rgba(130,217,130,0.1)",
+                border: "1px solid rgba(130,217,130,0.25)",
                 borderRadius: "4px",
-                padding: "2px 6px",
+                padding: "3px 8px",
               }}
             >
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="#82d982"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
               Read
             </span>
           )}

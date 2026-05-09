@@ -67,7 +67,6 @@ export default function AleymFeed({
 
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
   const [manualFetching, setManualFetching] = useState(false);
   const [error, setError] = useState(null);
   const [reachedEnd, setReachedEnd] = useState(false);
@@ -75,9 +74,10 @@ export default function AleymFeed({
   const [pendingNewArticles, setPendingNewArticles] = useState([]);
 
   // -------- Filters --------
-  // Derive dropdown values from props to sync with sidebar
-  const selectedSource = selectedSourceIds.length === 1 ? selectedSourceIds[0] : "";
-  const selectedCategory = selectedCategoryIds.length === 1 ? selectedCategoryIds[0] : "";
+  const selectedSource =
+    selectedSourceIds.length === 1 ? selectedSourceIds[0] : "";
+  const selectedCategory =
+    selectedCategoryIds.length === 1 ? selectedCategoryIds[0] : "";
   const [sortOrder, setSortOrder] = useState("desc");
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -86,6 +86,7 @@ export default function AleymFeed({
   const focusSessionsRef = useRef(new Map());
   const sentinelRef = useRef(null);
   const scrollAnchorRef = useRef(null);
+  const isMountedRef = useRef(true);
 
   const pageLoadIdRef = useRef(0);
   const headPollIdRef = useRef(0);
@@ -93,16 +94,38 @@ export default function AleymFeed({
   const articlesRef = useRef(articles);
   const pendingRef = useRef(pendingNewArticles);
   const sortOrderRef = useRef(sortOrder);
+  const filterArticlesRef = useRef(null);
+
+  const loadingMoreRef = useRef(false);
+  const reachedEndRef = useRef(false);
+
+  // Track component mount status to avoid memory leaks on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     articlesRef.current = articles;
   }, [articles]);
+
   useEffect(() => {
     pendingRef.current = pendingNewArticles;
   }, [pendingNewArticles]);
+
   useEffect(() => {
     sortOrderRef.current = sortOrder;
   }, [sortOrder]);
+
+  useEffect(() => {
+    loadingMoreRef.current = loadingMore;
+  }, [loadingMore]);
+
+  useEffect(() => {
+    reachedEndRef.current = reachedEnd;
+  }, [reachedEnd]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
@@ -122,27 +145,41 @@ export default function AleymFeed({
   const hasActiveSourceFilter = selectedSourceIds.length > 0;
   const hasActiveCategoryFilter = selectedCategoryIds.length > 0;
 
-  const filterArticles = useCallback((articles) => {
-    return articles.filter((article) => {
-      // Source filter takes priority — if active, only show articles from
-      // the selected source(s), regardless of category.
-      if (hasActiveSourceFilter) {
-        return selectedSourceIds.includes(article.source);
-      }
-
-      // Category filter — only runs when no source filter is active.
-      if (hasActiveCategoryFilter) {
-        const categoryId = sourceToCategoryMap[article.source];
-        if (categoryId) {
-          return selectedCategoryIds.includes(categoryId);
+  const filterArticles = useCallback(
+    (articlesList) => {
+      return articlesList.filter((article) => {
+        // Source filter takes priority
+        if (hasActiveSourceFilter) {
+          return selectedSourceIds.includes(article.source);
         }
-        // Article's source has no known category — include it to be safe.
-        return true;
-      }
 
-      return true;
-    });
-  }, [hasActiveSourceFilter, hasActiveCategoryFilter, selectedSourceIds, selectedCategoryIds, sourceToCategoryMap]);
+        // Category filter
+        if (hasActiveCategoryFilter) {
+          const categoryId = sourceToCategoryMap[article.source];
+          if (categoryId) {
+            return selectedCategoryIds.includes(categoryId);
+          }
+          // Article's source has no known category — include it to be safe.
+          return true;
+        }
+
+        return true;
+      });
+    },
+    [
+      hasActiveSourceFilter,
+      hasActiveCategoryFilter,
+      selectedSourceIds,
+      selectedCategoryIds,
+      sourceToCategoryMap,
+    ],
+  );
+
+  // Mirror filterArticles into a ref so pollHead (whose identity is now
+  // stable) can call the latest version without depending on it.
+  useEffect(() => {
+    filterArticlesRef.current = filterArticles;
+  }, [filterArticles]);
 
   // -------- Debounce search --------
   useEffect(() => {
@@ -153,13 +190,11 @@ export default function AleymFeed({
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // -------- Source-to-category mapping (for local filtering) --------
-  // Load sources & categories once, building proper category mappings
+  // -------- Source-to-category mapping --------
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        // Load all sources and all categories in parallel
         const [allSources, catData] = await Promise.all([
           api.sources.list(),
           api.categories.list(),
@@ -169,7 +204,6 @@ export default function AleymFeed({
         setCategories(catData || []);
         setSources(allSources || []);
 
-        // Build source-to-category mapping by fetching sources for each category
         const sourceToCatMap = {};
         await Promise.all(
           (catData || []).map(async (cat) => {
@@ -179,7 +213,11 @@ export default function AleymFeed({
                 sourceToCatMap[src.id] = cat.id;
               });
             } catch (err) {
-              console.debug("Failed to load sources for category:", cat.id, err);
+              console.debug(
+                "Failed to load sources for category:",
+                cat.id,
+                err,
+              );
             }
           }),
         );
@@ -209,8 +247,7 @@ export default function AleymFeed({
     return q;
   }, [selectedSourceIds, selectedCategoryIds, searchQuery]);
 
-
-  // -------- Reset & load first page when filters change --------
+  // -------- Reset & load first page --------
   const loadFirstPage = useCallback(async () => {
     const reqId = ++pageLoadIdRef.current;
 
@@ -225,11 +262,12 @@ export default function AleymFeed({
         limit: PAGE_SIZE,
         sort_order: sortOrder,
       });
-      if (reqId !== pageLoadIdRef.current) return;
+      if (reqId !== pageLoadIdRef.current || !isMountedRef.current) return;
 
       page = page || [];
       let filteredList = filterArticles(page);
       let attempts = 0;
+
       while (
         filteredList.length === 0 &&
         page.length === PAGE_SIZE &&
@@ -246,7 +284,7 @@ export default function AleymFeed({
           limit: PAGE_SIZE,
           sort_order: sortOrder,
         });
-        if (reqId !== pageLoadIdRef.current) return;
+        if (reqId !== pageLoadIdRef.current || !isMountedRef.current) return;
 
         page = page || [];
         filteredList = filterArticles(page);
@@ -254,19 +292,23 @@ export default function AleymFeed({
       }
 
       const seen = new Set();
-      setArticles(filteredList.filter((a) => {
-        if (seen.has(a.id)) return false;
-        seen.add(a.id);
-      return true;
-      }));
+      setArticles(
+        filteredList.filter((a) => {
+          if (seen.has(a.id)) return false;
+          seen.add(a.id);
+          return true;
+        }),
+      );
       setReachedEnd(page.length < PAGE_SIZE);
     } catch (err) {
-      if (reqId !== pageLoadIdRef.current) return;
+      if (reqId !== pageLoadIdRef.current || !isMountedRef.current) return;
       setError(err.message || "Failed to load articles");
       setArticles([]);
       setReachedEnd(true);
     } finally {
-      if (reqId === pageLoadIdRef.current) setLoadingInitial(false);
+      if (reqId === pageLoadIdRef.current && isMountedRef.current) {
+        setLoadingInitial(false);
+      }
     }
   }, [buildFilterArgs, sortOrder, filterArticles]);
 
@@ -276,19 +318,23 @@ export default function AleymFeed({
 
   // -------- Infinite scroll: load next page --------
   const loadMore = useCallback(async () => {
-    if (loadingInitial || loadingMore || reachedEnd) return;
-    if (articles.length === 0) return;
+    if (loadingInitial || loadingMoreRef.current || reachedEndRef.current)
+      return;
+
+    const currentArticles = articlesRef.current;
+    if (currentArticles.length === 0) return;
 
     const reqId = pageLoadIdRef.current;
     setLoadingMore(true);
 
     try {
       let page = [];
-      let last = articles[articles.length - 1];
+      let last = currentArticles[currentArticles.length - 1];
       let cursor = cursorOf(last);
       let cursorParams =
         sortOrder === "desc" ? { before: cursor } : { after: cursor };
       let attempts = 0;
+      let totalAdded = 0;
 
       do {
         const data = await api.articles.list({
@@ -300,48 +346,58 @@ export default function AleymFeed({
         if (reqId !== pageLoadIdRef.current) return;
 
         page = data || [];
+
+        // Empty page from API → definitely the end.
+        if (page.length === 0) {
+          setReachedEnd(true);
+          return;
+        }
+
         const fresh = filterArticles(page);
+
+        let addedCount = 0;
         if (fresh.length > 0) {
           setArticles((prev) => {
             const seen = new Set(prev.map((a) => a.id));
             const filteredFresh = fresh.filter((a) => !seen.has(a.id));
-            if (filteredFresh.length === 0) {
-              setReachedEnd(page.length < PAGE_SIZE);
-              return prev;
-            }
+            addedCount = filteredFresh.length;
+            if (filteredFresh.length === 0) return prev;
             return [...prev, ...filteredFresh];
           });
-
-          if (page.length < PAGE_SIZE) setReachedEnd(true);
-          return;
+          totalAdded += addedCount;
         }
 
+        // Short page from API → end of stream regardless of dedup outcome.
         if (page.length < PAGE_SIZE) {
           setReachedEnd(true);
           return;
         }
 
+        // We added something this iteration → return so the user sees it;
+        // the sentinel will fire again if they scroll further.
+        if (addedCount > 0) return;
+
+        // Full page but nothing new (all duplicates / all filtered out) →
+        // walk the cursor and try again so we don't stall.
         last = page[page.length - 1];
         cursor = cursorOf(last);
-        cursorParams = sortOrder === "desc" ? { before: cursor } : { after: cursor };
+        cursorParams =
+          sortOrder === "desc" ? { before: cursor } : { after: cursor };
         attempts += 1;
       } while (attempts < 8);
 
-      setReachedEnd(page.length < PAGE_SIZE);
+      // Hit the attempt cap without adding anything new → treat as end so
+      // the sentinel stops re-firing. Better a false "End of Feed" than an
+      // infinite spinner loop.
+      if (totalAdded === 0) {
+        setReachedEnd(true);
+      }
     } catch (err) {
       console.error("loadMore failed:", err);
     } finally {
       if (reqId === pageLoadIdRef.current) setLoadingMore(false);
     }
-  }, [
-    articles,
-    buildFilterArgs,
-    filterArticles,
-    loadingInitial,
-    loadingMore,
-    reachedEnd,
-    sortOrder,
-  ]);
+  }, [buildFilterArgs, filterArticles, loadingInitial, sortOrder]);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -358,27 +414,48 @@ export default function AleymFeed({
   }, [loadMore, reachedEnd]);
 
   // -------- Head poll --------
+  // Keep filter args in a ref so pollHead's identity is stable. Otherwise
+  // every keystroke in the search box (or filter change) would rebuild
+  // pollHead, which would tear down and reset the 20-second interval —
+  // meaning the interval might rarely actually fire.
+  const buildFilterArgsRef = useRef(buildFilterArgs);
+  useEffect(() => {
+    buildFilterArgsRef.current = buildFilterArgs;
+  }, [buildFilterArgs]);
+
   const pollHead = useCallback(async () => {
     if (sortOrderRef.current !== "desc") return;
 
-    const visible = articlesRef.current;
-    if (visible.length === 0) return;
-
     const reqId = ++headPollIdRef.current;
 
-    const headCursor = visible.reduce(
-      (acc, a) => Math.max(acc, cursorOf(a)),
-      0,
-    );
-    if (!headCursor) return;
+    // Compute head cursor from BOTH visible and pending — otherwise once a
+    // popup is showing, subsequent polls re-fetch from the old cursor and
+    // can miss newer articles when more than HEAD_POLL_PAGE_SIZE arrive.
+    const visible = articlesRef.current;
+    const pending = pendingRef.current;
+
+    let headCursor = 0;
+    for (const a of visible) {
+      const c = cursorOf(a);
+      if (c > headCursor) headCursor = c;
+    }
+    for (const a of pending) {
+      const c = cursorOf(a);
+      if (c > headCursor) headCursor = c;
+    }
 
     try {
-      const data = await api.articles.list({
-        ...buildFilterArgs(),
-        after: headCursor,
+      // If we have no cursor yet (empty feed, no pending), fetch the latest
+      // page without a cursor so we still surface new content instead of
+      // bailing silently.
+      const params = {
+        ...buildFilterArgsRef.current(),
         limit: HEAD_POLL_PAGE_SIZE,
         sort_order: "desc",
-      });
+      };
+      if (headCursor > 0) params.after = headCursor;
+
+      const data = await api.articles.list(params);
       if (reqId !== headPollIdRef.current) return;
 
       const incoming = data || [];
@@ -391,17 +468,27 @@ export default function AleymFeed({
       );
       if (fresh.length === 0) return;
 
+      // Apply the same client-side filter the main feed uses, so pending
+      // articles match what would actually be shown.
+      const filteredFresh = filterArticlesRef.current
+        ? filterArticlesRef.current(fresh)
+        : fresh;
+      if (filteredFresh.length === 0) return;
+
       setPendingNewArticles((prev) => {
         const seen = new Set(prev.map((a) => a.id));
-        const dedup = fresh.filter((a) => !seen.has(a.id));
+        const dedup = filteredFresh.filter((a) => !seen.has(a.id));
         if (dedup.length === 0) return prev;
         return [...dedup, ...prev];
       });
     } catch (err) {
       console.debug("pollHead failed:", err);
     }
-  }, [buildFilterArgs]);
+  }, []);
 
+  // Polling interval — pollHead's identity is now stable, so this effect
+  // mounts once per sortOrder change instead of resetting on every filter
+  // or search keystroke.
   useEffect(() => {
     if (sortOrder !== "desc") return;
     const t = setInterval(() => {
@@ -419,6 +506,19 @@ export default function AleymFeed({
       }
     });
     return unsubscribe;
+  }, [pollHead]);
+
+  // When the tab becomes visible after being hidden, browsers throttle
+  // setInterval to ~once-per-minute, so we may have missed several poll
+  // cycles. Trigger an immediate catch-up poll on visibility change.
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        pollHead();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [pollHead]);
 
   const revealPendingArticles = useCallback(() => {
@@ -445,12 +545,12 @@ export default function AleymFeed({
   }, []);
 
   const sortedArticles = useMemo(() => {
-  const seen = new Set();
-  return sortArticles(articles, sortOrder).filter((a) => {
-    if (seen.has(a.id)) return false;
-    seen.add(a.id);
-    return true;
-  });
+    const seen = new Set();
+    return sortArticles(articles, sortOrder).filter((a) => {
+      if (seen.has(a.id)) return false;
+      seen.add(a.id);
+      return true;
+    });
   }, [articles, sortOrder]);
 
   const onArticleReadChange = useCallback((articleId, newIsRead) => {
@@ -482,18 +582,6 @@ export default function AleymFeed({
     return () => window.removeEventListener("beforeunload", handler);
   }, []);
 
-  const onRefresh = useCallback(async () => {
-    if (refreshing) return;
-    setRefreshing(true);
-    setError(null);
-    const minSpin = new Promise((r) => setTimeout(r, 500));
-    try {
-      await Promise.all([pollHead(), loadFirstPage(), minSpin]);
-    } finally {
-      setRefreshing(false);
-    }
-  }, [loadFirstPage, pollHead, refreshing]);
-
   const onManualFetchSource = useCallback(async () => {
     if (!selectedSource || manualFetching) return;
     setManualFetching(true);
@@ -515,12 +603,18 @@ export default function AleymFeed({
     try {
       await api.sources.manualFetch(selectedSource);
       await updatePromise;
-      await loadFirstPage();
+      if (isMountedRef.current) {
+        await loadFirstPage();
+      }
     } catch (err) {
       console.error("Manual fetch failed:", err);
-      setError(err.message || "Manual fetch failed");
+      if (isMountedRef.current) {
+        setError(err.message || "Manual fetch failed");
+      }
     } finally {
-      setManualFetching(false);
+      if (isMountedRef.current) {
+        setManualFetching(false);
+      }
     }
   }, [selectedSource, manualFetching, loadFirstPage]);
 
@@ -843,38 +937,6 @@ export default function AleymFeed({
                 <option value="desc">Newest First</option>
                 <option value="asc">Oldest First</option>
               </select>
-
-              <button
-                onClick={onRefresh}
-                disabled={refreshing}
-                style={{
-                  ...refreshButtonStyle,
-                  opacity: refreshing ? 0.7 : 1,
-                  cursor: refreshing ? "wait" : "pointer",
-                }}
-                title="Check for new articles and reload"
-              >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{
-                    animation: refreshing
-                      ? "spin 0.8s linear infinite"
-                      : "none",
-                    transformOrigin: "center",
-                  }}
-                >
-                  <polyline points="23 4 23 10 17 10" />
-                  <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
-                </svg>
-                {refreshing ? "Refreshing…" : "Refresh"}
-              </button>
 
               {selectedSource && (
                 <button

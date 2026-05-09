@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import api from "../services/aleymApi";
 import SummarizeButton from "./SummarizeButton";
 
@@ -21,6 +21,10 @@ import SummarizeButton from "./SummarizeButton";
  *   - Click upvote/downvote once to vote
  *   - Click the same button again to UNDO (clear the vote)
  *   - Click the opposite button to switch votes
+ *
+ * LAYOUT:
+ *   - AI Summarize and Redirect buttons remain visible outside the kebab menu
+ *   - Upvote, Downvote, and Read/Unread are grouped inside the "⋮" dropdown menu
  */
 export default function NewsCardGrid({
   id,
@@ -39,6 +43,31 @@ export default function NewsCardGrid({
 }) {
   const [hovered, setHovered] = useState(false);
   const [hoveredBtn, setHoveredBtn] = useState(null);
+
+  // ---- Kebab menu state ----
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  // Close menu on outside click or Escape
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setMenuOpen(false);
+      }
+    };
+    const handleKey = (e) => {
+      if (e.key === "Escape") setMenuOpen(false);
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [menuOpen]);
 
   // ---- Vote state (persisted via localStorage) ----
   // null = no vote, true = upvoted, false = downvoted
@@ -206,6 +235,7 @@ export default function NewsCardGrid({
 
   const handleCardClick = (e) => {
     if (e.target.closest("button")) return;
+    if (e.target.closest("a")) return;
     if (readState) return;
     writeReadState(true);
   };
@@ -254,6 +284,25 @@ export default function NewsCardGrid({
 
   const strokeFor = (isHover, isActive) =>
     isActive ? "#0e0e12" : isHover ? "#e8e6e1" : "#6a6a7a";
+
+  // Style for menu items inside the kebab dropdown
+  const menuItemStyle = (isHover, isActive, activeColor) => ({
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    width: "100%",
+    padding: "8px 12px",
+    background: isHover ? "rgba(255,255,255,0.06)" : "transparent",
+    border: "none",
+    borderRadius: "8px",
+    cursor: "pointer",
+    color: isActive ? activeColor : isHover ? "#e8e6e1" : "#c8c6c1",
+    fontSize: "13px",
+    fontWeight: 500,
+    textAlign: "left",
+    transition: "all 0.15s ease",
+    fontFamily: "inherit",
+  });
 
   return (
     <div
@@ -324,7 +373,7 @@ export default function NewsCardGrid({
 
             {/* Button group */}
             <div style={{ display: "flex", gap: "6px" }}>
-              {/* ---- AI Summarize ---- */}
+              {/* ---- AI Summarize (kept visible) ---- */}
               <SummarizeButton
                 articleId={id}
                 onSummarize={onSummarize}
@@ -333,157 +382,7 @@ export default function NewsCardGrid({
                 strokeFor={strokeFor}
               />
 
-              {/* ---- Upvote ---- */}
-              <div
-                style={{ position: "relative" }}
-                onMouseEnter={() => setHoveredBtn("up")}
-                onMouseLeave={() => setHoveredBtn(null)}
-              >
-                <button
-                  type="button"
-                  aria-label={vote === true ? "Remove upvote" : "Upvote"}
-                  aria-pressed={vote === true}
-                  disabled={voteBusy}
-                  onClick={() => sendVote(true)}
-                  style={{
-                    ...iconBtnStyle(
-                      hoveredBtn === "up",
-                      vote === true,
-                      "linear-gradient(135deg, #82d982, #4ec94e)",
-                    ),
-                    cursor: voteBusy ? "wait" : "pointer",
-                  }}
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill={vote === true ? "#0e0e12" : "none"}
-                    stroke={strokeFor(hoveredBtn === "up", vote === true)}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M7 10v12" />
-                    <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7V10l4.34-7.66A1.5 1.5 0 0 1 14 3.5l1 2.38Z" />
-                  </svg>
-                </button>
-                {hoveredBtn === "up" && (
-                  <div style={tooltipStyle}>
-                    {vote === true ? "Remove upvote" : "Upvote"}
-                  </div>
-                )}
-              </div>
-
-              {/* ---- Downvote ---- */}
-              <div
-                style={{ position: "relative" }}
-                onMouseEnter={() => setHoveredBtn("down")}
-                onMouseLeave={() => setHoveredBtn(null)}
-              >
-                <button
-                  type="button"
-                  aria-label={vote === false ? "Remove downvote" : "Downvote"}
-                  aria-pressed={vote === false}
-                  disabled={voteBusy}
-                  onClick={() => sendVote(false)}
-                  style={{
-                    ...iconBtnStyle(
-                      hoveredBtn === "down",
-                      vote === false,
-                      "linear-gradient(135deg, #ff8a8a, #e25757)",
-                    ),
-                    cursor: voteBusy ? "wait" : "pointer",
-                  }}
-                >
-                  <svg
-                    width="14"
-                    height="14"
-                    viewBox="0 0 24 24"
-                    fill={vote === false ? "#0e0e12" : "none"}
-                    stroke={strokeFor(hoveredBtn === "down", vote === false)}
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="M17 14V2" />
-                    <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H17v12l-4.34 7.66A1.5 1.5 0 0 1 10 20.5l-1-2.38Z" />
-                  </svg>
-                </button>
-                {hoveredBtn === "down" && (
-                  <div style={tooltipStyle}>
-                    {vote === false ? "Remove downvote" : "Downvote"}
-                  </div>
-                )}
-              </div>
-
-              {/* ---- Read / Unread toggle ---- */}
-              <div
-                style={{ position: "relative" }}
-                onMouseEnter={() => setHoveredBtn("read")}
-                onMouseLeave={() => setHoveredBtn(null)}
-              >
-                <button
-                  type="button"
-                  aria-label={readState ? "Mark as unread" : "Mark as read"}
-                  aria-pressed={readState}
-                  disabled={readBusy}
-                  onClick={toggleRead}
-                  style={{
-                    ...iconBtnStyle(
-                      hoveredBtn === "read",
-                      readState,
-                      "linear-gradient(135deg, #c792ea, #82aaff)",
-                    ),
-                    cursor: readBusy ? "wait" : "pointer",
-                  }}
-                >
-                  {readState ? (
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={strokeFor(hoveredBtn === "read", true)}
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
-                      <path d="m3 8 9-6 9 6" />
-                      <path d="m3 8 9 6 9-6" />
-                    </svg>
-                  ) : (
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={strokeFor(hoveredBtn === "read", false)}
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <rect x="3" y="5" width="18" height="14" rx="2" />
-                      <path d="m3 7 9 6 9-6" />
-                      <circle
-                        cx="19"
-                        cy="6"
-                        r="3"
-                        fill="#82aaff"
-                        stroke="none"
-                      />
-                    </svg>
-                  )}
-                </button>
-                {hoveredBtn === "read" && (
-                  <div style={tooltipStyle}>
-                    {readState ? "Mark as unread" : "Mark as read"}
-                  </div>
-                )}
-              </div>
-
-              {/* ---- Source link ---- */}
+              {/* ---- Source link (kept visible) ---- */}
               <div
                 style={{ position: "relative" }}
                 onMouseEnter={() => setHoveredBtn("source")}
@@ -540,25 +439,200 @@ export default function NewsCardGrid({
                   </div>
                 </a>
                 {hoveredBtn === "source" && (
+                  <div style={tooltipStyle}>Redirect to source</div>
+                )}
+              </div>
+
+              {/* ---- Kebab menu (groups upvote / downvote / read) ---- */}
+              <div
+                ref={menuRef}
+                style={{ position: "relative" }}
+                onMouseEnter={() => setHoveredBtn("more")}
+                onMouseLeave={() => setHoveredBtn(null)}
+              >
+                <button
+                  type="button"
+                  aria-label="More actions"
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen((v) => !v);
+                  }}
+                  style={iconBtnStyle(
+                    hoveredBtn === "more" || menuOpen,
+                    menuOpen,
+                    "linear-gradient(135deg, #c792ea, #82aaff)",
+                  )}
+                >
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke={strokeFor(
+                      hoveredBtn === "more" || menuOpen,
+                      menuOpen,
+                    )}
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <circle cx="12" cy="5" r="1.5" />
+                    <circle cx="12" cy="12" r="1.5" />
+                    <circle cx="12" cy="19" r="1.5" />
+                  </svg>
+                </button>
+
+                {/* Tooltip (hidden when menu is open) */}
+                {hoveredBtn === "more" && !menuOpen && (
+                  <div style={tooltipStyle}>More actions</div>
+                )}
+
+                {/* Dropdown menu */}
+                {menuOpen && (
                   <div
+                    role="menu"
+                    onClick={(e) => e.stopPropagation()}
                     style={{
                       position: "absolute",
-                      bottom: "calc(100% + 8px)",
-                      left: "50%",
-                      transform: "translateX(-50%)",
+                      top: "calc(100% + 8px)",
+                      right: 0,
+                      minWidth: "180px",
                       background: "#1e1e26",
                       border: "1px solid rgba(255,255,255,0.1)",
-                      borderRadius: "8px",
-                      padding: "6px 12px",
-                      fontSize: "12px",
-                      color: "#e8e6e1",
-                      whiteSpace: "nowrap",
-                      zIndex: 10,
-                      boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
-                      pointerEvents: "none",
+                      borderRadius: "12px",
+                      padding: "6px",
+                      boxShadow:
+                        "0 12px 40px rgba(0,0,0,0.5), 0 4px 12px rgba(0,0,0,0.3)",
+                      zIndex: 20,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "2px",
                     }}
                   >
-                    Redirect to source
+                    {/* Upvote menu item */}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-pressed={vote === true}
+                      disabled={voteBusy}
+                      onMouseEnter={() => setHoveredBtn("menu-up")}
+                      onMouseLeave={() => setHoveredBtn(null)}
+                      onClick={() => sendVote(true)}
+                      style={menuItemStyle(
+                        hoveredBtn === "menu-up",
+                        vote === true,
+                        "#82d982",
+                      )}
+                    >
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill={vote === true ? "#82d982" : "none"}
+                        stroke={vote === true ? "#82d982" : "currentColor"}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M7 10v12" />
+                        <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H7V10l4.34-7.66A1.5 1.5 0 0 1 14 3.5l1 2.38Z" />
+                      </svg>
+                      <span>{vote === true ? "Remove upvote" : "Upvote"}</span>
+                    </button>
+
+                    {/* Downvote menu item */}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-pressed={vote === false}
+                      disabled={voteBusy}
+                      onMouseEnter={() => setHoveredBtn("menu-down")}
+                      onMouseLeave={() => setHoveredBtn(null)}
+                      onClick={() => sendVote(false)}
+                      style={menuItemStyle(
+                        hoveredBtn === "menu-down",
+                        vote === false,
+                        "#ff8a8a",
+                      )}
+                    >
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill={vote === false ? "#ff8a8a" : "none"}
+                        stroke={vote === false ? "#ff8a8a" : "currentColor"}
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M17 14V2" />
+                        <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H17v12l-4.34 7.66A1.5 1.5 0 0 1 10 20.5l-1-2.38Z" />
+                      </svg>
+                      <span>
+                        {vote === false ? "Remove downvote" : "Downvote"}
+                      </span>
+                    </button>
+
+                    {/* Divider */}
+                    <div
+                      style={{
+                        height: "1px",
+                        background: "rgba(255,255,255,0.06)",
+                        margin: "4px 6px",
+                      }}
+                    />
+
+                    {/* Read / Unread menu item */}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      aria-pressed={readState}
+                      disabled={readBusy}
+                      onMouseEnter={() => setHoveredBtn("menu-read")}
+                      onMouseLeave={() => setHoveredBtn(null)}
+                      onClick={toggleRead}
+                      style={menuItemStyle(
+                        hoveredBtn === "menu-read",
+                        readState,
+                        "#c792ea",
+                      )}
+                    >
+                      {readState ? (
+                        <svg
+                          width="15"
+                          height="15"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="#c792ea"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M21 8v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8" />
+                          <path d="m3 8 9-6 9 6" />
+                          <path d="m3 8 9 6 9-6" />
+                        </svg>
+                      ) : (
+                        <svg
+                          width="15"
+                          height="15"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <rect x="3" y="5" width="18" height="14" rx="2" />
+                          <path d="m3 7 9 6 9-6" />
+                        </svg>
+                      )}
+                      <span>
+                        {readState ? "Mark as unread" : "Mark as read"}
+                      </span>
+                    </button>
                   </div>
                 )}
               </div>

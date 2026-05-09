@@ -18,24 +18,16 @@ export default function ArticlePage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Reading session — accumulates active time only (excludes idle, hidden tab,
-  // unfocused window). Started once the article loads, stopped when the user
-  // leaves the page.
+  // Reading session tracking
   const sessionRef = useRef(null);
   const maxScrollDepthRef = useRef(0);
   const readSentRef = useRef(false);
-
-  // Scroll container ref — in embedded mode we listen on the panel itself,
-  // not on window, because the panel is what actually scrolls.
   const scrollContainerRef = useRef(null);
 
   useEffect(() => {
     if (!articleId) return;
     let cancelled = false;
 
-    // Reset per-article tracking state when articleId changes (important in
-    // embedded mode where the same component instance is reused across
-    // different articles).
     maxScrollDepthRef.current = 0;
     readSentRef.current = false;
 
@@ -54,7 +46,6 @@ export default function ArticlePage({
         );
         if (src) setSourceName(src.name);
 
-        // Open the reading session once the content is in front of the user.
         sessionRef.current = new ActivitySession();
       } catch (err) {
         if (!cancelled) setError(err.message || "Failed to load article");
@@ -69,11 +60,10 @@ export default function ArticlePage({
     };
   }, [articleId]);
 
-  // Scroll depth tracking — keep the deepest point reached, not current.
+  // Scroll depth tracking
   useEffect(() => {
     if (!article) return;
 
-    // In embedded mode, the panel scrolls (not window).
     const target = embedded ? scrollContainerRef.current : window;
     if (!target) return;
 
@@ -106,7 +96,7 @@ export default function ArticlePage({
     return () => target.removeEventListener("scroll", handleScroll);
   }, [article, embedded]);
 
-  // Send Read on leave.
+  // Send Read on leave
   useEffect(() => {
     if (!article) return;
 
@@ -118,7 +108,6 @@ export default function ArticlePage({
       const activeMs = session.stop();
       sessionRef.current = null;
 
-      // Below threshold = treat as a non-read (mere skim).
       if (activeMs < MIN_READ_MS) return;
 
       readSentRef.current = true;
@@ -139,11 +128,10 @@ export default function ArticlePage({
     };
   }, [article]);
 
-  // Vote handlers — persisted via localStorage, supports toggle/undo.
+  // Vote handlers
   const [voteState, setVoteState] = useState(null);
   const [voteBusy, setVoteBusy] = useState(false);
 
-  // Load persisted vote when articleId changes (works for embedded mode too).
   useEffect(() => {
     if (!articleId) {
       setVoteState(null);
@@ -159,42 +147,29 @@ export default function ArticlePage({
     }
   }, [articleId]);
 
-  // Listen for vote changes from other components (e.g. cards)
   useEffect(() => {
     if (!articleId) return;
-
     const handleVoteChange = (e) => {
       if (e.detail?.articleId !== articleId) return;
-      setVoteState(e.detail.vote); // already in "up"/"down"/null format
+      setVoteState(e.detail.vote);
     };
-
     window.addEventListener("aleym:vote-changed", handleVoteChange);
     return () => {
       window.removeEventListener("aleym:vote-changed", handleVoteChange);
     };
   }, [articleId]);
 
-  /**
-   * Vote handler with toggle/undo logic
-   * - First click: sets the vote (up or down)
-   * - Second click on same button: clears the vote (undo)
-   * - Click opposite button: switches the vote
-   */
   const handleVote = (isUpVote) => {
     if (!article || voteBusy) return;
 
-    // Capture previous state BEFORE updating, for error recovery
     const previousVote = voteState;
     const intendedVote = isUpVote ? "up" : "down";
-
-    // If clicking the same button, undo (clear vote)
     const isUndo = previousVote === intendedVote;
     const newVote = isUndo ? null : intendedVote;
 
     setVoteBusy(true);
-    setVoteState(newVote); // Optimistic UI update
+    setVoteState(newVote);
 
-    // Persist to localStorage
     try {
       if (newVote === null) {
         localStorage.removeItem(`aleym:vote:${article.id}`);
@@ -203,16 +178,13 @@ export default function ArticlePage({
       }
     } catch {}
 
-    // Notify other components (cards) about the vote change
     window.dispatchEvent(
       new CustomEvent("aleym:vote-changed", {
         detail: { articleId: article.id, vote: newVote },
       }),
     );
 
-    // Choose API call based on whether this is an undo
     let apiPromise;
-
     if (isUndo) {
       if (api.feedback && typeof api.feedback.removeVote === "function") {
         apiPromise = api.feedback.removeVote({
@@ -220,7 +192,6 @@ export default function ArticlePage({
           done_at: Math.floor(Date.now() / 1000),
         });
       } else {
-        // No backend support for undo — UI-only undo
         apiPromise = Promise.resolve();
       }
     } else {
@@ -234,9 +205,7 @@ export default function ArticlePage({
     apiPromise
       .catch((err) => {
         console.warn("Vote feedback failed:", err);
-        // Revert UI to the captured previous vote
         setVoteState(previousVote);
-        // Also revert localStorage
         try {
           if (previousVote === null) {
             localStorage.removeItem(`aleym:vote:${article.id}`);
@@ -244,8 +213,6 @@ export default function ArticlePage({
             localStorage.setItem(`aleym:vote:${article.id}`, previousVote);
           }
         } catch {}
-
-        // Notify other components about the reverted vote
         window.dispatchEvent(
           new CustomEvent("aleym:vote-changed", {
             detail: { articleId: article.id, vote: previousVote },
@@ -255,9 +222,7 @@ export default function ArticlePage({
       .finally(() => setVoteBusy(false));
   };
 
-  // Label for the back button — adapts to where the user came from.
   const backLabel = returnTo === "foryou" ? "Back to For You" : "Back to Feed";
-
   const timestamp = article?.published_at || article?.first_fetched_at;
   const date = timestamp ? new Date(timestamp * 1000) : null;
   const formattedDate = date
@@ -272,7 +237,6 @@ export default function ArticlePage({
     ? date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })
     : "";
 
-  // Handler for closing — embedded uses onClose, full uses navigateTo.
   const handleBack = () => {
     if (embedded && onClose) {
       onClose();
@@ -397,15 +361,12 @@ export default function ArticlePage({
         background: "#0e0e12",
         fontFamily: "'DM Sans', sans-serif",
         color: "#e8e6e1",
-        // In embedded mode, the wrapper itself scrolls so we can attach the
-        // scroll listener to it. Outside embedded mode, window handles it.
         ...(embedded
           ? { height: "100vh", overflowY: "auto", overflowX: "hidden" }
           : {}),
       }}
     >
       {embedded ? (
-        /* Embedded mini nav bar: close button on the right */
         <div
           style={{
             position: "sticky",
@@ -497,7 +458,6 @@ export default function ArticlePage({
           </button>
         </div>
       ) : (
-        /* Full sticky top navigation bar */
         <div
           style={{
             position: "sticky",
@@ -731,19 +691,181 @@ export default function ArticlePage({
         />
 
         {article.content ? (
-          <div
-            className="article-content"
-            dangerouslySetInnerHTML={{ __html: article.content }}
-            style={{
-              fontSize: embedded ? "16px" : "17px",
-              lineHeight: 1.8,
-              color: "#c8c6c1",
-              fontFamily: "'Source Serif 4', serif",
-              wordBreak: "break-word",
-              letterSpacing: "0.2px",
-            }}
-          />
+          <>
+            <div
+              className="article-content"
+              dangerouslySetInnerHTML={{ __html: article.content }}
+              style={{
+                fontSize: embedded ? "16px" : "17px",
+                lineHeight: 1.8,
+                color: "#c8c6c1",
+                fontFamily: "'Source Serif 4', serif",
+                wordBreak: "break-word",
+                letterSpacing: "0.2px",
+              }}
+            />
+
+            {/* Source-provided summary, shown after the article body */}
+            {article.summary && (
+              <div
+                style={{
+                  marginTop: "40px",
+                  padding: "20px 24px",
+                  borderRadius: "12px",
+                  background: "rgba(199,146,234,0.04)",
+                  border: "1px solid rgba(199,146,234,0.12)",
+                }}
+              >
+                <div
+                  style={{
+                    marginBottom: "10px",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      letterSpacing: "1.2px",
+                      textTransform: "uppercase",
+                      color: "#c792ea",
+                    }}
+                  >
+                    Source Summary
+                  </span>
+                </div>
+                <p
+                  style={{
+                    margin: 0,
+                    fontSize: "14px",
+                    lineHeight: 1.65,
+                    color: "#b8b6b1",
+                    fontStyle: "italic",
+                  }}
+                >
+                  {article.summary}
+                </p>
+              </div>
+            )}
+          </>
+        ) : article.summary ? (
+          /* No content but summary available — show summary + redirect CTA */
+          <div>
+            <div
+              style={{
+                padding: "24px",
+                borderRadius: "14px",
+                background: "rgba(199,146,234,0.04)",
+                border: "1px solid rgba(199,146,234,0.12)",
+                marginBottom: "32px",
+              }}
+            >
+              <div
+                style={{
+                  marginBottom: "14px",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    letterSpacing: "1.2px",
+                    textTransform: "uppercase",
+                    color: "#c792ea",
+                  }}
+                >
+                  Source Summary
+                </span>
+              </div>
+              <p
+                style={{
+                  margin: 0,
+                  fontSize: embedded ? "15px" : "16px",
+                  lineHeight: 1.75,
+                  color: "#c8c6c1",
+                  fontFamily: "'Source Serif 4', serif",
+                }}
+              >
+                {article.summary}
+              </p>
+            </div>
+
+            <div
+              style={{
+                textAlign: "center",
+                padding: "32px 20px",
+                borderRadius: "14px",
+                background: "rgba(255,255,255,0.02)",
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <p
+                style={{
+                  color: "#8a8a9a",
+                  fontSize: "14px",
+                  fontWeight: 500,
+                  margin: "0 0 6px 0",
+                }}
+              >
+                Want to read the full article?
+              </p>
+              <p
+                style={{
+                  color: "#5a5a6a",
+                  fontSize: "13px",
+                  maxWidth: "420px",
+                  margin: "0 auto 20px",
+                }}
+              >
+                Only the summary is available here. Visit the source for the
+                complete story.
+              </p>
+              {article.uri && (
+                <a
+                  href={article.uri}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    padding: "12px 24px",
+                    borderRadius: "12px",
+                    background: "linear-gradient(135deg, #c792ea, #82aaff)",
+                    color: "#0e0e12",
+                    fontSize: "14px",
+                    fontWeight: 600,
+                    textDecoration: "none",
+                    transition: "all 0.2s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "translateY(-2px)";
+                    e.currentTarget.style.boxShadow =
+                      "0 8px 30px rgba(199,146,234,0.3)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "none";
+                  }}
+                >
+                  Read on {sourceName}
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  >
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </a>
+              )}
+            </div>
+          </div>
         ) : (
+          /* No content AND no summary state */
           <div style={{ textAlign: "center", padding: "60px 20px" }}>
             <div
               style={{
@@ -790,8 +912,8 @@ export default function ArticlePage({
                 margin: "0 auto 24px",
               }}
             >
-              This article doesn't have inline content. You can read the full
-              article on the original website.
+              This article doesn't have inline content or a summary. You can
+              read the full article on the original website.
             </p>
             {article.uri && (
               <a
@@ -839,7 +961,7 @@ export default function ArticlePage({
           </div>
         )}
 
-        {article.content && (
+        {(article.content || article.summary) && (
           <div
             style={{
               marginTop: "48px",
@@ -918,7 +1040,7 @@ export default function ArticlePage({
           </div>
         )}
 
-        {article.content && article.uri && (
+        {(article.content || article.summary) && article.uri && (
           <div
             style={{
               marginTop: "32px",
@@ -1013,7 +1135,7 @@ function voteBtnStyle(active, color) {
     fontSize: "13px",
     fontWeight: 500,
     fontFamily: "'DM Sans', sans-serif",
-    cursor: "pointer", // Always clickable now (for undo/switch)
+    cursor: "pointer",
     transition: "all 0.2s ease",
     opacity: 1,
   };

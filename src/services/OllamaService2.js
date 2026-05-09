@@ -1,5 +1,5 @@
 // OllamaService2.js
-// Service module for local Ollama API (llama3.2).
+// Service module for local Ollama API.
 // Provides article summarization via the /api/generate endpoint.
 
 // ---------------------------------------------------------------------------
@@ -12,7 +12,9 @@ const OLLAMA_BASE =
     import.meta.env.VITE_OLLAMA_BASE) ||
   "http://localhost:11434";
 
-const OLLAMA_MODEL =
+// Default model — used as a fallback hint and for the install prompt.
+// Actual model used per-call comes from the caller.
+const OLLAMA_DEFAULT_MODEL =
   (typeof import.meta !== "undefined" &&
     import.meta.env &&
     import.meta.env.VITE_OLLAMA_MODEL) ||
@@ -35,12 +37,10 @@ export class OllamaError extends Error {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Returns true if a string field has actual content (not null/empty/whitespace). */
 function hasContent(field) {
   return typeof field === "string" && field.trim().length > 0;
 }
 
-/** Strip HTML tags and collapse whitespace. */
 function stripHtml(html) {
   return html
     .replace(/<[^>]*>/g, " ")
@@ -48,28 +48,15 @@ function stripHtml(html) {
     .trim();
 }
 
+/** Sanitize a model name so it's safe to use in a localStorage key. */
+function sanitizeModelForKey(model) {
+  return String(model || "").replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
 // ---------------------------------------------------------------------------
-// Prompt builder
+// Prompt builder (unchanged)
 // ---------------------------------------------------------------------------
 
-/**
- * Builds a summarization prompt that adapts to whatever fields are available
- * and to the requested output language.
- *
- * Strategy:
- *   - If full content exists -> summarize the content.
- *   - If only description/summary exists -> expand it into a coherent summary.
- *   - If only title exists -> infer what the article is likely about from the title alone
- *     (and tell the model to be honest about the limited info).
- *
- * @param {Object} article
- * @param {string} [article.title]
- * @param {string} [article.content]
- * @param {string} [article.description]
- * @param {string} [article.source]
- * @param {string} [article.author]
- * @param {"en"|"ar"} [language="en"] - output language for the summary
- */
 function buildSummaryPrompt(article, language = "en") {
   const hasTitle = hasContent(article.title);
   const hasDescription = hasContent(article.description);
@@ -82,7 +69,6 @@ function buildSummaryPrompt(article, language = "en") {
     ? "Write the summary in Modern Standard Arabic (العربية الفصحى). Use natural, fluent Arabic — do not transliterate English words unless they are proper nouns. Do not include any English text in the summary."
     : "Write the summary in English.";
 
-  // Decide on the strategy based on what's available.
   let instruction;
   if (hasFullContent) {
     instruction =
@@ -128,11 +114,12 @@ function buildSummaryPrompt(article, language = "en") {
 }
 
 // ---------------------------------------------------------------------------
-// Core API methods
+// Core API methods — model is now a required parameter
 // ---------------------------------------------------------------------------
 
 /** Non-streaming summarization. */
-async function summarize(article, signal, language = "en") {
+async function summarize(article, model, signal, language = "en") {
+  if (!model) throw new OllamaError("No model specified", 0, "");
   const prompt = buildSummaryPrompt(article, language);
   const url = `${OLLAMA_BASE}/api/generate`;
 
@@ -142,7 +129,7 @@ async function summarize(article, signal, language = "en") {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: OLLAMA_MODEL,
+        model,
         prompt,
         stream: false,
         options: { temperature: 0.3, top_p: 0.9, num_predict: 300 },
@@ -172,7 +159,14 @@ async function summarize(article, signal, language = "en") {
 }
 
 /** Streaming summarization with progressive chunks. */
-async function summarizeStream(article, onChunk, signal, language = "en") {
+async function summarizeStream(
+  article,
+  model,
+  onChunk,
+  signal,
+  language = "en",
+) {
+  if (!model) throw new OllamaError("No model specified", 0, "");
   const prompt = buildSummaryPrompt(article, language);
   const url = `${OLLAMA_BASE}/api/generate`;
 
@@ -182,7 +176,7 @@ async function summarizeStream(article, onChunk, signal, language = "en") {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: OLLAMA_MODEL,
+        model,
         prompt,
         stream: true,
         options: { temperature: 0.3, top_p: 0.9, num_predict: 300 },
@@ -218,9 +212,8 @@ async function summarizeStream(article, onChunk, signal, language = "en") {
 
     buffer += decoder.decode(value, { stream: true });
 
-    // Ollama emits newline-delimited JSON. Process complete lines only.
     const lines = buffer.split("\n");
-    buffer = lines.pop(); // last (possibly incomplete) line stays in buffer
+    buffer = lines.pop();
 
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -239,7 +232,7 @@ async function summarizeStream(article, onChunk, signal, language = "en") {
   return fullText.trim();
 }
 
-/** Health check — verifies Ollama is reachable and model is available. */
+/** Health check — verifies Ollama is reachable and lists installed models. */
 async function healthCheck() {
   try {
     const res = await fetch(`${OLLAMA_BASE}/api/tags`, {
@@ -251,18 +244,10 @@ async function healthCheck() {
     }
     const data = await res.json();
     const models = (data.models || []).map((m) => m.name);
-    const hasModel = models.some(
-      (name) => name === OLLAMA_MODEL || name.startsWith(`${OLLAMA_MODEL}:`),
-    );
     return {
       ok: true,
       models,
-      hasModel,
-      ...(hasModel
-        ? {}
-        : {
-            warning: `Model "${OLLAMA_MODEL}" not found. Available: ${models.join(", ") || "none"}`,
-          }),
+      hasAnyModel: models.length > 0,
     };
   } catch (err) {
     return {
@@ -277,11 +262,12 @@ async function healthCheck() {
 // ---------------------------------------------------------------------------
 
 const CACHE_PREFIX = "aleym_summary:";
-const CACHE_VERSION = 2; // bumped — old keys without language are ignored
+const CACHE_VERSION = 3; // bumped — model is now part of the call
 
-function cacheKey(articleId, language) {
+function cacheKey(articleId, model, language) {
   const lang = language === "ar" ? "ar" : "en";
-  return `${CACHE_PREFIX}${articleId}:${OLLAMA_MODEL}:${lang}`;
+  const safeModel = sanitizeModelForKey(model);
+  return `${CACHE_PREFIX}${articleId}:${safeModel}:${lang}`;
 }
 
 function safeStorage() {
@@ -293,13 +279,13 @@ function safeStorage() {
   }
 }
 
-function getCachedSummary(articleId, language = "en") {
-  if (!articleId) return null;
+function getCachedSummary(articleId, model, language = "en") {
+  if (!articleId || !model) return null;
   const storage = safeStorage();
   if (!storage) return null;
 
   try {
-    const raw = storage.getItem(cacheKey(articleId, language));
+    const raw = storage.getItem(cacheKey(articleId, model, language));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (parsed.version !== CACHE_VERSION) return null;
@@ -315,8 +301,8 @@ function getCachedSummary(articleId, language = "en") {
   }
 }
 
-function setCachedSummary(articleId, summary, language = "en") {
-  if (!articleId || !summary) return;
+function setCachedSummary(articleId, model, summary, language = "en") {
+  if (!articleId || !model || !summary) return;
   const storage = safeStorage();
   if (!storage) return;
 
@@ -324,27 +310,32 @@ function setCachedSummary(articleId, summary, language = "en") {
     const payload = JSON.stringify({
       version: CACHE_VERSION,
       summary,
-      model: OLLAMA_MODEL,
+      model,
       language: language === "ar" ? "ar" : "en",
       savedAt: Date.now(),
     });
-    storage.setItem(cacheKey(articleId, language), payload);
+    storage.setItem(cacheKey(articleId, model, language), payload);
   } catch {
     /* quota / storage error — silent */
   }
 }
 
-function clearCachedSummary(articleId, language) {
+function clearCachedSummary(articleId, model, language) {
   if (!articleId) return;
   const storage = safeStorage();
   if (!storage) return;
   try {
-    if (language) {
-      storage.removeItem(cacheKey(articleId, language));
+    if (model && language) {
+      storage.removeItem(cacheKey(articleId, model, language));
     } else {
-      // Clear both languages for this article
-      storage.removeItem(cacheKey(articleId, "en"));
-      storage.removeItem(cacheKey(articleId, "ar"));
+      // Remove every cached entry that starts with this article's id.
+      const prefix = `${CACHE_PREFIX}${articleId}:`;
+      const toRemove = [];
+      for (let i = 0; i < storage.length; i++) {
+        const key = storage.key(i);
+        if (key && key.startsWith(prefix)) toRemove.push(key);
+      }
+      toRemove.forEach((k) => storage.removeItem(k));
     }
   } catch {
     /* ignore */
@@ -366,9 +357,8 @@ function clearAllCachedSummaries() {
   }
 }
 
-/** Quick check — does a cached summary exist for this article+language? */
-function hasCachedSummary(articleId, language = "en") {
-  return getCachedSummary(articleId, language) !== null;
+function hasCachedSummary(articleId, model, language = "en") {
+  return getCachedSummary(articleId, model, language) !== null;
 }
 
 // ---------------------------------------------------------------------------
@@ -377,7 +367,7 @@ function hasCachedSummary(articleId, language = "en") {
 
 const ollama = {
   baseUrl: OLLAMA_BASE,
-  model: OLLAMA_MODEL,
+  defaultModel: OLLAMA_DEFAULT_MODEL,
   OllamaError,
   buildSummaryPrompt,
   summarize,

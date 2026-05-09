@@ -3,28 +3,32 @@ import api from "../services/aleymApi";
 import ollama from "../services/OllamaService2";
 import { useOllama } from "../contexts/OllamaContext";
 
+const LAST_MODEL_KEY = "aleym_last_model";
+
 export default function SummaryModal({ articleId, onClose }) {
   const [article, setArticle] = useState(null);
   const [sourceName, setSourceName] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [language, setLanguage] = useState(null); // null = picker shown, "en" | "ar" = chosen
+  // Phase tracking: model picker → language picker → summary view
+  const [model, setModel] = useState(null);     // null = model picker shown
+  const [language, setLanguage] = useState(null); // null = language picker shown
+
   const [summary, setSummary] = useState("");
   const [summarizing, setSummarizing] = useState(false);
   const [summaryError, setSummaryError] = useState(null);
   const [summaryDone, setSummaryDone] = useState(false);
 
-  // Cache availability shown on the language picker
+  // Cache availability shown on the language picker (for the chosen model)
   const [enCached, setEnCached] = useState(false);
   const [arCached, setArCached] = useState(false);
 
   const abortRef = useRef(null);
 
-  // Ollama status and recheck function
-  const { status: ollamaStatus, recheck } = useOllama();
+  const { status: ollamaStatus, models, recheck } = useOllama();
 
-  // Effect 1: Load article when modal opens. Don't summarize yet — wait for language pick.
+  // Effect 1: Load article when modal opens.
   useEffect(() => {
     if (!articleId) return;
     let cancelled = false;
@@ -33,15 +37,12 @@ export default function SummaryModal({ articleId, onClose }) {
     setError(null);
     setArticle(null);
     setSourceName("");
+    setModel(null);
     setLanguage(null);
     setSummary("");
     setSummaryDone(false);
     setSummaryError(null);
     setSummarizing(false);
-
-    // Check what's already cached for the picker badges
-    setEnCached(ollama.hasCachedSummary(articleId, "en"));
-    setArCached(ollama.hasCachedSummary(articleId, "ar"));
 
     async function loadArticle() {
       try {
@@ -69,11 +70,20 @@ export default function SummaryModal({ articleId, onClose }) {
     };
   }, [articleId]);
 
-  // Effect 2: When language is picked AND article is loaded, fetch / stream summary.
+  // Effect 2: When a model is picked, refresh the cached-language badges.
   useEffect(() => {
-    if (!articleId || !language || !article) return;
+    if (!articleId || !model) {
+      setEnCached(false);
+      setArCached(false);
+      return;
+    }
+    setEnCached(ollama.hasCachedSummary(articleId, model, "en"));
+    setArCached(ollama.hasCachedSummary(articleId, model, "ar"));
+  }, [articleId, model]);
 
-    // Don't even try to summarize if Ollama isn't available
+  // Effect 3: When model + language are both picked AND article is loaded, fetch / stream summary.
+  useEffect(() => {
+    if (!articleId || !model || !language || !article) return;
     if (ollamaStatus !== "available") return;
 
     let cancelled = false;
@@ -86,7 +96,7 @@ export default function SummaryModal({ articleId, onClose }) {
 
     async function runSummary() {
       // 1) Cache hit?
-      const cached = ollama.getCachedSummary(articleId, language);
+      const cached = ollama.getCachedSummary(articleId, model, language);
       if (cached) {
         if (cancelled) return;
         setSummary(cached.summary);
@@ -105,6 +115,7 @@ export default function SummaryModal({ articleId, onClose }) {
             description: article.summary || "",
             source: sourceName,
           },
+          model,
           (chunk) => {
             if (cancelled) return;
             streamed += chunk;
@@ -116,8 +127,7 @@ export default function SummaryModal({ articleId, onClose }) {
         if (cancelled) return;
 
         if (streamed.trim()) {
-          ollama.setCachedSummary(articleId, streamed.trim(), language);
-          // Refresh the badge state in case the user goes back to the picker
+          ollama.setCachedSummary(articleId, model, streamed.trim(), language);
           if (language === "en") setEnCached(true);
           else setArCached(true);
         }
@@ -135,9 +145,9 @@ export default function SummaryModal({ articleId, onClose }) {
       cancelled = true;
       controller.abort();
     };
-  }, [articleId, language, article, sourceName, ollamaStatus]);
+  }, [articleId, model, language, article, sourceName, ollamaStatus]);
 
-  // Escape closes the modal (unchanged)
+  // Escape closes the modal
   useEffect(() => {
     if (!articleId) return;
     const onKey = (e) => {
@@ -147,9 +157,26 @@ export default function SummaryModal({ articleId, onClose }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [articleId, onClose]);
 
+  // Pick model handler — also remembers last chosen model
+  const pickModel = (m) => {
+    setModel(m);
+    try {
+      window.localStorage?.setItem(LAST_MODEL_KEY, m);
+    } catch {
+      /* ignore */
+    }
+  };
+
   if (!articleId) return null;
 
   const isArabic = language === "ar";
+
+  // Determine which phase we're in (only when article is loaded and Ollama is ready)
+  const phaseReady =
+    !loading && !error && article && ollamaStatus === "available";
+  const showModelPicker = phaseReady && model === null;
+  const showLanguagePicker = phaseReady && model !== null && language === null;
+  const showSummary = phaseReady && model !== null && language !== null;
 
   return (
     <div
@@ -265,7 +292,7 @@ export default function SummaryModal({ articleId, onClose }) {
           </button>
         </div>
 
-        {/* Body — scrollable */}
+        {/* Body */}
         <div style={{ padding: "24px", overflowY: "auto", flex: 1 }}>
           {/* Loading article */}
           {loading && (
@@ -295,7 +322,6 @@ export default function SummaryModal({ articleId, onClose }) {
             </div>
           )}
 
-          {/* Article load error */}
           {error && (
             <div style={{ textAlign: "center", padding: "20px 0" }}>
               <p
@@ -314,12 +340,11 @@ export default function SummaryModal({ articleId, onClose }) {
             </div>
           )}
 
-          {/* PHASE 0.5 — Ollama Checking State */}
+          {/* Ollama checking */}
           {!loading &&
             !error &&
             article &&
-            ollamaStatus === "checking" &&
-            language === null && (
+            ollamaStatus === "checking" && (
               <div
                 style={{
                   display: "flex",
@@ -345,72 +370,104 @@ export default function SummaryModal({ articleId, onClose }) {
               </div>
             )}
 
-          {/* PHASE 0 — Ollama not available: install prompt */}
+          {/* Ollama not available / no models */}
           {!loading &&
             !error &&
             article &&
             ollamaStatus !== "available" &&
-            ollamaStatus !== "checking" &&
-            language === null && (
+            ollamaStatus !== "checking" && (
               <OllamaInstallPrompt
                 status={ollamaStatus}
                 onRecheck={recheck}
-                model={ollama.model}
+                model={ollama.defaultModel}
               />
             )}
 
-          {/* PHASE 1 — Language picker (only if Ollama is ready) */}
-          {!loading &&
-            !error &&
-            article &&
-            ollamaStatus === "available" &&
-            language === null && (
-              <div style={{ padding: "8px 0" }}>
-                <h2
-                  style={{
-                    fontSize: "16px",
-                    fontFamily: "'Playfair Display', serif",
-                    fontWeight: 700,
-                    color: "#e8e6e1",
-                    margin: "0 0 6px 0",
-                    textAlign: "center",
-                  }}
-                >
-                  Choose summary language
-                </h2>
-                <p
-                  style={{
-                    fontSize: "12px",
-                    color: "#6a6a7a",
-                    textAlign: "center",
-                    margin: "0 0 24px 0",
-                  }}
-                >
-                  اختر لغة الملخص
-                </p>
+          {/* PHASE 1 — Model picker */}
+          {showModelPicker && (
+            <ModelPicker
+              models={models}
+              articleId={articleId}
+              onPick={pickModel}
+            />
+          )}
 
-                <div style={{ display: "flex", gap: "12px" }}>
-                  <LanguageButton
-                    label="English"
-                    sublabel="Generate in English"
-                    cached={enCached}
-                    onClick={() => setLanguage("en")}
-                  />
-                  <LanguageButton
-                    label="العربية"
-                    sublabel="إنشاء باللغة العربية"
-                    cached={arCached}
-                    onClick={() => setLanguage("ar")}
-                    rtl
-                  />
-                </div>
+          {/* PHASE 2 — Language picker */}
+          {showLanguagePicker && (
+            <div style={{ padding: "8px 0" }}>
+              <h2
+                style={{
+                  fontSize: "16px",
+                  fontFamily: "'Playfair Display', serif",
+                  fontWeight: 700,
+                  color: "#e8e6e1",
+                  margin: "0 0 6px 0",
+                  textAlign: "center",
+                }}
+              >
+                Choose summary language
+              </h2>
+              <p
+                style={{
+                  fontSize: "12px",
+                  color: "#6a6a7a",
+                  textAlign: "center",
+                  margin: "0 0 8px 0",
+                }}
+              >
+                اختر لغة الملخص
+              </p>
+              <p
+                style={{
+                  fontSize: "10px",
+                  color: "#5a5a6a",
+                  textAlign: "center",
+                  margin: "0 0 20px 0",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                Using model: <span style={{ color: "#ffcb6b" }}>{model}</span>
+              </p>
+
+              <div style={{ display: "flex", gap: "12px" }}>
+                <LanguageButton
+                  label="English"
+                  sublabel="Generate in English"
+                  cached={enCached}
+                  onClick={() => setLanguage("en")}
+                />
+                <LanguageButton
+                  label="العربية"
+                  sublabel="إنشاء باللغة العربية"
+                  cached={arCached}
+                  onClick={() => setLanguage("ar")}
+                  rtl
+                />
               </div>
-            )}
 
-          {/* PHASE 2 / 3 — Summary view */}
-          {!loading && !error && article && language !== null && (
+              <div style={{ marginTop: "16px", textAlign: "center" }}>
+                <button
+                  onClick={() => setModel(null)}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                    color: "#8a8a9a",
+                    fontSize: "11px",
+                    padding: "5px 10px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontFamily: "'DM Sans', sans-serif",
+                  }}
+                >
+                  ← Change model
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* PHASE 3 — Summary view */}
+          {showSummary && (
             <>
-              {/* Source */}
               {sourceName && (
                 <div
                   style={{
@@ -431,7 +488,6 @@ export default function SummaryModal({ articleId, onClose }) {
                 </div>
               )}
 
-              {/* Title — keep in original language */}
               <h2
                 style={{
                   fontSize: "18px",
@@ -454,7 +510,6 @@ export default function SummaryModal({ articleId, onClose }) {
                 }}
               />
 
-              {/* Summary */}
               {summary && (
                 <p
                   dir={isArabic ? "rtl" : "ltr"}
@@ -487,7 +542,6 @@ export default function SummaryModal({ articleId, onClose }) {
                 </p>
               )}
 
-              {/* Initial summarizing state */}
               {!summary && summarizing && !summaryError && (
                 <div
                   style={{
@@ -513,7 +567,6 @@ export default function SummaryModal({ articleId, onClose }) {
                 </div>
               )}
 
-              {/* Summary error */}
               {summaryError && (
                 <div
                   style={{
@@ -539,7 +592,6 @@ export default function SummaryModal({ articleId, onClose }) {
                 </div>
               )}
 
-              {/* Done footer + back-to-language link */}
               {summaryDone && (
                 <div
                   style={{
@@ -550,23 +602,44 @@ export default function SummaryModal({ articleId, onClose }) {
                     alignItems: "center",
                     justifyContent: "space-between",
                     gap: "12px",
+                    flexWrap: "wrap",
                   }}
                 >
-                  <button
-                    onClick={() => setLanguage(null)}
-                    style={{
-                      background: "transparent",
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      color: "#8a8a9a",
-                      fontSize: "11px",
-                      padding: "5px 10px",
-                      borderRadius: "6px",
-                      cursor: "pointer",
-                      fontFamily: "'DM Sans', sans-serif",
-                    }}
-                  >
-                    ← Change language
-                  </button>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                      onClick={() => setLanguage(null)}
+                      style={{
+                        background: "transparent",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        color: "#8a8a9a",
+                        fontSize: "11px",
+                        padding: "5px 10px",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        fontFamily: "'DM Sans', sans-serif",
+                      }}
+                    >
+                      ← Change language
+                    </button>
+                    <button
+                      onClick={() => {
+                        setLanguage(null);
+                        setModel(null);
+                      }}
+                      style={{
+                        background: "transparent",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        color: "#8a8a9a",
+                        fontSize: "11px",
+                        padding: "5px 10px",
+                        borderRadius: "6px",
+                        cursor: "pointer",
+                        fontFamily: "'DM Sans', sans-serif",
+                      }}
+                    >
+                      ← Change model
+                    </button>
+                  </div>
                   <p
                     style={{
                       fontSize: "10px",
@@ -575,7 +648,7 @@ export default function SummaryModal({ articleId, onClose }) {
                       letterSpacing: "0.5px",
                     }}
                   >
-                    Generated locally by {ollama.model} via Ollama
+                    Generated locally by {model} via Ollama
                   </p>
                 </div>
               )}
@@ -597,7 +670,156 @@ export default function SummaryModal({ articleId, onClose }) {
   );
 }
 
-/** Small helper component for the two language buttons. */
+/** Model picker — lists installed Ollama models. Highlights the previously used one. */
+function ModelPicker({ models, articleId, onPick }) {
+  const lastUsed = (() => {
+    try {
+      return window.localStorage?.getItem(LAST_MODEL_KEY) || null;
+    } catch {
+      return null;
+    }
+  })();
+
+  // Sort: last-used first, then alphabetical
+  const sorted = [...models].sort((a, b) => {
+    if (a === lastUsed) return -1;
+    if (b === lastUsed) return 1;
+    return a.localeCompare(b);
+  });
+
+  return (
+    <div style={{ padding: "8px 0" }}>
+      <h2
+        style={{
+          fontSize: "16px",
+          fontFamily: "'Playfair Display', serif",
+          fontWeight: 700,
+          color: "#e8e6e1",
+          margin: "0 0 6px 0",
+          textAlign: "center",
+        }}
+      >
+        Choose a model
+      </h2>
+      <p
+        style={{
+          fontSize: "12px",
+          color: "#6a6a7a",
+          textAlign: "center",
+          margin: "0 0 20px 0",
+        }}
+      >
+        {sorted.length} model{sorted.length === 1 ? "" : "s"} installed locally
+      </p>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: "8px",
+          maxHeight: "320px",
+          overflowY: "auto",
+        }}
+      >
+        {sorted.map((m) => {
+          // Show a small "✓ cached" indicator if either language has a cached summary for this article+model
+          const cached =
+            ollama.hasCachedSummary(articleId, m, "en") ||
+            ollama.hasCachedSummary(articleId, m, "ar");
+          return (
+            <ModelButton
+              key={m}
+              name={m}
+              isLastUsed={m === lastUsed}
+              cached={cached}
+              onClick={() => onPick(m)}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ModelButton({ name, isLastUsed, cached, onClick }) {
+  const [hover, setHover] = useState(false);
+  return (
+    <button
+      onClick={onClick}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        width: "100%",
+        padding: "12px 14px",
+        background: hover ? "rgba(255,203,107,0.08)" : "rgba(255,255,255,0.02)",
+        border: hover
+          ? "1px solid rgba(255,203,107,0.35)"
+          : "1px solid rgba(255,255,255,0.08)",
+        borderRadius: "10px",
+        color: "#e8e6e1",
+        cursor: "pointer",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: "10px",
+        transition: "all 0.15s ease",
+        fontFamily: "inherit",
+        textAlign: "left",
+      }}
+    >
+      <span
+        style={{
+          fontSize: "13px",
+          fontWeight: 500,
+          fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+          color: "#e8e6e1",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {name}
+      </span>
+      <span style={{ display: "flex", gap: "6px", alignItems: "center", flexShrink: 0 }}>
+        {isLastUsed && (
+          <span
+            style={{
+              fontSize: "9px",
+              fontWeight: 600,
+              color: "#ffcb6b",
+              background: "rgba(255,203,107,0.1)",
+              border: "1px solid rgba(255,203,107,0.2)",
+              borderRadius: "4px",
+              padding: "2px 6px",
+              letterSpacing: "0.5px",
+              textTransform: "uppercase",
+            }}
+          >
+            recent
+          </span>
+        )}
+        {cached && (
+          <span
+            style={{
+              fontSize: "9px",
+              fontWeight: 600,
+              color: "#7dd87d",
+              background: "rgba(125,216,125,0.1)",
+              border: "1px solid rgba(125,216,125,0.2)",
+              borderRadius: "4px",
+              padding: "2px 6px",
+              letterSpacing: "0.5px",
+              textTransform: "uppercase",
+            }}
+          >
+            ✓ cached
+          </span>
+        )}
+      </span>
+    </button>
+  );
+}
+
 function LanguageButton({ label, sublabel, cached, onClick, rtl = false }) {
   const [hover, setHover] = useState(false);
   return (
@@ -661,7 +883,6 @@ function LanguageButton({ label, sublabel, cached, onClick, rtl = false }) {
   );
 }
 
-/** Shown when Ollama isn't reachable or the required model isn't installed. */
 function OllamaInstallPrompt({ status, onRecheck, model }) {
   const [rechecking, setRechecking] = useState(false);
 
@@ -675,7 +896,6 @@ function OllamaInstallPrompt({ status, onRecheck, model }) {
 
   return (
     <div style={{ padding: "8px 4px", textAlign: "center" }}>
-      {/* Icon */}
       <div
         style={{
           width: "56px",
@@ -716,7 +936,7 @@ function OllamaInstallPrompt({ status, onRecheck, model }) {
         }}
       >
         {isMissingModel
-          ? `Model "${model}" is not installed`
+          ? "No models installed"
           : "Ollama is not installed"}
       </h2>
 
@@ -729,11 +949,10 @@ function OllamaInstallPrompt({ status, onRecheck, model }) {
         }}
       >
         {isMissingModel
-          ? `Ollama is running, but the ${model} model isn't downloaded yet. Pull it with the command below.`
-          : `AI summarization runs locally via Ollama. To use this feature, install Ollama and pull the ${model} model.`}
+          ? `Ollama is running, but you don't have any models downloaded yet. Pull one with the command below.`
+          : `AI summarization runs locally via Ollama. To use this feature, install Ollama and pull at least one model.`}
       </p>
 
-      {/* Install steps */}
       <div
         style={{
           textAlign: "left",
@@ -789,8 +1008,8 @@ function OllamaInstallPrompt({ status, onRecheck, model }) {
           }}
         >
           {isMissingModel
-            ? "Run this command"
-            : `Step 2 — Pull the ${model} model`}
+            ? "Pull a model — for example:"
+            : `Step 2 — Pull a model (e.g. ${model})`}
         </p>
         <code
           style={{
@@ -806,9 +1025,28 @@ function OllamaInstallPrompt({ status, onRecheck, model }) {
         >
           ollama pull {model}
         </code>
+        <p
+          style={{
+            fontSize: "11px",
+            color: "#6a6a7a",
+            margin: "8px 0 0 0",
+            lineHeight: 1.5,
+          }}
+        >
+          You can install any model you want — {model} is just a recommendation.
+          Browse all models at{" "}
+          <a
+            href="https://ollama.com/library"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#ffcb6b", textDecoration: "underline" }}
+          >
+            ollama.com/library
+          </a>
+          .
+        </p>
       </div>
 
-      {/* Recheck button */}
       <button
         onClick={handleRecheck}
         disabled={rechecking}

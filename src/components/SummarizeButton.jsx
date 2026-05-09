@@ -24,7 +24,7 @@ export default function SummarizeButton({
       : status === "checking"
         ? "AI Summary (checking…)"
         : status === "no-model"
-          ? "AI Summary — model not installed"
+          ? "AI Summary — no models installed"
           : "AI Summary — Ollama not installed";
 
   return (
@@ -63,7 +63,6 @@ export default function SummarizeButton({
           <path d="m16.24 7.76 2.83-2.83" />
         </svg>
 
-        {/* Tiny status dot — only visible when Ollama is unavailable */}
         {status !== "available" && status !== "checking" && (
           <span
             style={{

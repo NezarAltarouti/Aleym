@@ -5,6 +5,19 @@ import SummarizeButton from "./SummarizeButton";
 // NO ANIMATION (NO SLIDE)
 
 /**
+ * Strip HTML tags and decode entities from a string,
+ * returning clean plain text suitable for display in a card preview.
+ */
+function stripHtml(html) {
+  if (!html || typeof html !== "string") return "";
+  // Use the browser's parser to safely extract text content
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const text = doc.body.textContent || "";
+  // Collapse whitespace (newlines, tabs, multiple spaces) into single spaces
+  return text.replace(/\s+/g, " ").trim();
+}
+
+/**
  * NewsCard — displays a single news article in a card layout.
  * Props:
  *   - id: string (UUID) — required for feedback / read-state actions
@@ -283,7 +296,8 @@ export default function NewsCard({
           borderRadius: "16px",
           padding: "24px",
           transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
-          transform: hovered && !readState ? "translateY(-4px)" : "translateY(0)",
+          transform:
+            hovered && !readState ? "translateY(-4px)" : "translateY(0)",
           boxShadow:
             hovered && !readState
               ? "0 12px 40px rgba(199,146,234,0.1), 0 4px 12px rgba(0,0,0,0.3)"
@@ -546,11 +560,7 @@ export default function NewsCard({
               fontSize: "15px",
               fontWeight: 600,
               lineHeight: 1.45,
-              color: readState
-                ? "#7a7a8a"
-                : hovered
-                  ? "#e8e6e1"
-                  : "#c8c6c1",
+              color: readState ? "#7a7a8a" : hovered ? "#e8e6e1" : "#c8c6c1",
               margin: 0,
               transition: "color 0.2s ease",
               display: "-webkit-box",
@@ -563,22 +573,25 @@ export default function NewsCard({
           </h3>
 
           {/* Description */}
-          {description && (
-            <p
-              style={{
-                fontSize: "12px",
-                lineHeight: 1.5,
-                color: "#6a6a7a",
-                margin: "10px 0 0 0",
-                display: "-webkit-box",
-                WebkitLineClamp: 2,
-                WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-              }}
-            >
-              {description}
-            </p>
-          )}
+          {(() => {
+            const cleanDescription = stripHtml(description);
+            return cleanDescription ? (
+              <p
+                style={{
+                  fontSize: "12px",
+                  lineHeight: 1.5,
+                  color: "#6a6a7a",
+                  margin: "10px 0 0 0",
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {cleanDescription}
+              </p>
+            ) : null;
+          })()}
         </div>
 
         {/* Bottom: Date row */}

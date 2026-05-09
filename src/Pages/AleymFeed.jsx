@@ -122,28 +122,27 @@ export default function AleymFeed({
   const hasActiveSourceFilter = selectedSourceIds.length > 0;
   const hasActiveCategoryFilter = selectedCategoryIds.length > 0;
 
-
-const filterArticles = useCallback((articles) => {
-  return articles.filter((article) => {
-    // Source filter takes priority — if active, only show articles from
-    // the selected source(s), regardless of category.
-    if (hasActiveSourceFilter) {
-      return selectedSourceIds.includes(article.source);
-    }
-
-    // Category filter — only runs when no source filter is active.
-    if (hasActiveCategoryFilter) {
-      const categoryId = sourceToCategoryMap[article.source];
-      if (categoryId) {
-        return selectedCategoryIds.includes(categoryId);
+  const filterArticles = useCallback((articles) => {
+    return articles.filter((article) => {
+      // Source filter takes priority — if active, only show articles from
+      // the selected source(s), regardless of category.
+      if (hasActiveSourceFilter) {
+        return selectedSourceIds.includes(article.source);
       }
-      // Article's source has no known category — include it to be safe.
-      return true;
-    }
 
-    return true;
-  });
-}, [hasActiveSourceFilter, hasActiveCategoryFilter, selectedSourceIds, selectedCategoryIds, sourceToCategoryMap]);
+      // Category filter — only runs when no source filter is active.
+      if (hasActiveCategoryFilter) {
+        const categoryId = sourceToCategoryMap[article.source];
+        if (categoryId) {
+          return selectedCategoryIds.includes(categoryId);
+        }
+        // Article's source has no known category — include it to be safe.
+        return true;
+      }
+
+      return true;
+    });
+  }, [hasActiveSourceFilter, hasActiveCategoryFilter, selectedSourceIds, selectedCategoryIds, sourceToCategoryMap]);
 
   // -------- Debounce search --------
   useEffect(() => {
@@ -160,32 +159,32 @@ const filterArticles = useCallback((articles) => {
     let alive = true;
     (async () => {
       try {
-        const catData = await api.categories.list();
+        // Load all sources and all categories in parallel
+        const [allSources, catData] = await Promise.all([
+          api.sources.list(),
+          api.categories.list(),
+        ]);
         if (!alive) return;
+
         setCategories(catData || []);
+        setSources(allSources || []);
 
         // Build source-to-category mapping by fetching sources for each category
         const sourceToCatMap = {};
-        const sourcesMap = new Map();
-
         await Promise.all(
           (catData || []).map(async (cat) => {
             try {
               const srcList = await api.categories.sources(cat.id);
               (srcList || []).forEach((src) => {
-              sourceToCatMap[src.id] = cat.id;
-              if (!sourcesMap.has(src.id)) {
-                sourcesMap.set(src.id, src);
-              }
-            });
-          } catch (err) {
-            console.debug("Failed to load sources for category:", cat.id, err);
+                sourceToCatMap[src.id] = cat.id;
+              });
+            } catch (err) {
+              console.debug("Failed to load sources for category:", cat.id, err);
             }
           }),
-    );
+        );
 
-if (alive) {
-  setSources(Array.from(sourcesMap.values()));
+        if (alive) {
           setSourceToCategoryMap(sourceToCatMap);
         }
       } catch (err) {
@@ -809,7 +808,7 @@ if (alive) {
               >
                 <option value="">All Sources</option>
                 {sources
-                  .filter((s) => s.is_enabled)
+                  .filter((s) => s.is_enabled !== false)
                   .map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}

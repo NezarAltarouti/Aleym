@@ -182,6 +182,7 @@ export const articles = {
    * @param {string} [params.source_id]      UUID; takes priority over category_id
    * @param {string} [params.category_id]    UUID
    * @param {string} [params.query]          full-text search query
+   * @param {boolean}  [params.is_read]      filter by read/unread status
    * @param {AbortSignal} [signal]
    */
   list(params = {}, signal) {

@@ -81,6 +81,7 @@ export default function AleymFeed({
   const [sortOrder, setSortOrder] = useState("desc");
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [readFilter, setReadFilter] = useState("");
 
   // -------- Refs --------
   const focusSessionsRef = useRef(new Map());
@@ -244,8 +245,9 @@ export default function AleymFeed({
     }
 
     if (searchQuery) q.query = searchQuery;
+    if (readFilter !== "") q.is_read = readFilter === "true";
     return q;
-  }, [selectedSourceIds, selectedCategoryIds, searchQuery]);
+  }, [selectedSourceIds, selectedCategoryIds, searchQuery,readFilter]);
 
   // -------- Reset & load first page --------
   const loadFirstPage = useCallback(async () => {
@@ -936,6 +938,16 @@ export default function AleymFeed({
               >
                 <option value="desc">Newest First</option>
                 <option value="asc">Oldest First</option>
+              </select>
+              <select
+                className="aleym-select"
+                value={readFilter}
+                onChange={(e) => setReadFilter(e.target.value)}
+                style={selectStyle}
+              >
+                <option value="">All Articles</option>
+                <option value="false">Unread</option>
+                <option value="true">Read</option>
               </select>
 
               {selectedSource && (

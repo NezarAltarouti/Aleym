@@ -13,6 +13,12 @@ import DeleteSource from "../components/DeleteSource";
 import api from "../services/aleymApi";
 import { useData } from "../contexts/DataContext";
 
+function fetcherLabel(informant) {
+  if (informant === 1) return { label: "RSS", color: "#82aaff", bg: "rgba(130,170,255,0.1)", border: "rgba(130,170,255,0.15)" };
+  if (informant === 2) return { label: "Telegram", color: "#c792ea", bg: "rgba(199,146,234,0.1)", border: "rgba(199,146,234,0.15)" };
+  return { label: "Unknown", color: "#6a6a7a", bg: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.08)" };
+}
+
 function EditSourceModal({ source, onClose, onSaved }) {
   const [name, setName] = useState(source.name || "");
   const [description, setDescription] = useState(source.description || "");
@@ -140,14 +146,18 @@ function EditSourceModal({ source, onClose, onSaved }) {
           background: "#1a1a22",
           border: "1px solid rgba(255,255,255,0.08)",
           borderRadius: "20px",
-          padding: "32px",
           width: "420px",
           maxWidth: "90vw",
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: "column",
           fontFamily: "'DM Sans', sans-serif",
           boxShadow: "0 24px 80px rgba(0,0,0,0.5)",
           animation: "fadeSlideUp 0.3s ease",
+          overflow: "hidden",
         }}
       >
+        <div style={{ padding: "32px 32px 0 32px", overflowY: "auto", flex: 1 }}>
         <div style={{ marginBottom: "24px" }}>
           <h2
             style={{
@@ -239,7 +249,7 @@ function EditSourceModal({ source, onClose, onSaved }) {
           </div>
           <div>
             <label style={label}>Network</label>
-            <select
+            <select 
               value={network}
               onChange={(e) => setNetwork(e.target.value)}
               style={selectStyle}
@@ -247,6 +257,46 @@ function EditSourceModal({ source, onClose, onSaved }) {
               <option value="Clear">Clear Net</option>
               <option value="Tor">Tor</option>
             </select>
+          </div>
+          <div>
+            <label style={label}>Fetcher</label>
+            <div style={{
+              padding: "10px 14px", borderRadius: "10px",
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              display: "flex", alignItems: "center", gap: "12px",
+            }}>
+              {(() => {
+                const f = fetcherLabel(source.informant);
+                return (
+                  <>
+                    <span style={{
+                      fontSize: "10px", fontWeight: 600, letterSpacing: "0.8px",
+                      textTransform: "uppercase", padding: "3px 10px", borderRadius: "6px",
+                      background: f.bg, color: f.color,
+                      border: `1px solid ${f.border}`, flexShrink: 0,
+                    }}>
+                      {f.label}
+                    </span>
+                    {source.url && (
+                      <span style={{
+                        fontSize: "12px", color: "#6a6a7a",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      }}
+                      title={source.url}>
+                        {source.url}
+                      </span>
+                    )}
+                    {!source.url && (
+                      <span style={{ fontSize: "12px", color: "#3a3a4a" }}>—</span>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+            <p style={{ fontSize: "11px", color: "#4a4a5a", margin: "4px 0 0" }}>
+              Fetcher type cannot be changed after creation.
+            </p>
           </div>
           <div>
             <label style={label}>Categories</label>
@@ -441,14 +491,16 @@ function EditSourceModal({ source, onClose, onSaved }) {
             </div>
           </div>
         </div>
+        </div>
         <div
           style={{
             display: "flex",
             justifyContent: "flex-end",
             gap: "10px",
-            marginTop: "24px",
-            paddingTop: "20px",
+            padding: "16px 32px 24px 32px",
             borderTop: "1px solid rgba(255,255,255,0.05)",
+            flexShrink: 0,
+            background: "#1a1a22",
           }}
         >
           <button
@@ -918,6 +970,9 @@ useEffect(() => {
       } else if (sortField === "category") {
         av = sourceCategoryMap[a.id] || "";
         bv = sourceCategoryMap[b.id] || "";
+      } else if (sortField === "fetcher") {
+        av = a.informant ?? 0;
+        bv = b.informant ?? 0;
       } else {
         av = "";
         bv = "";
@@ -1459,6 +1514,12 @@ useEffect(() => {
                         <SortIcon field="network" />
                       </span>
                     </th>
+                    <th onClick={() => handleSort("fetcher")} style={thStyle}>
+                      <span style={{ display: "inline-flex", alignItems: "center" }}>
+                        Fetcher
+                        <SortIcon field="fetcher" />
+                      </span>
+                    </th>
                     <th
                       onClick={() => handleSort("category")}
                       style={{ ...thStyle, width: "160px" }}
@@ -1605,6 +1666,37 @@ useEffect(() => {
                             {source.networktype || "Clear"}
                           </span>
                         </td>
+                        <td style={{
+                          padding: "14px 16px",
+                          borderBottom: "1px solid rgba(255,255,255,0.04)",
+                        }}>
+                          {(() => {
+                            const f = fetcherLabel(source.informant);
+                            return (
+                              <div>
+                                <span style={{
+                                  fontSize: "10px", fontWeight: 600, letterSpacing: "0.8px",
+                                  textTransform: "uppercase", padding: "3px 10px", borderRadius: "6px",
+                                  background: f.bg, color: f.color,
+                                  border: `1px solid ${f.border}`,
+                                  display: "inline-block",
+                                }}>
+                                  {f.label}
+                                </span>
+                                {source.url && (
+                                  <div style={{
+                                    fontSize: "11px", color: "#5a5a6a", marginTop: "4px",
+                                    maxWidth: "180px", overflow: "hidden",
+                                    textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                  }}
+                                  title={source.url}>
+                                    {source.url}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </td>
                         <td
                           style={{
                             padding: "14px 16px",
@@ -1644,7 +1736,7 @@ useEffect(() => {
       </div>
 
       {editingSource && (
-        <EditSourceModal
+        <EditSourceModal 
           source={editingSource}
           onClose={() => setEditingSource(null)}
           onSaved={handleRefresh}

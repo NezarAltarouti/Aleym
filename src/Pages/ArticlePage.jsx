@@ -556,7 +556,7 @@ export default function ArticlePage({
             {article.summary && (
               <div className="summary-box">
                 <div style={{ marginBottom: "10px" }}>
-                  <span className="summary-label">Source Summary</span>
+                  <span className="summary-label">Summary</span>
                 </div>
                 <p
                   style={{
@@ -580,7 +580,7 @@ export default function ArticlePage({
               style={{ padding: "24px", marginBottom: "32px" }}
             >
               <div style={{ marginBottom: "14px" }}>
-                <span className="summary-label">Source Summary</span>
+                <span className="summary-label">Summary</span>
               </div>
               <p
                 style={{
@@ -692,7 +692,7 @@ export default function ArticlePage({
             )}
           </div>
         )}
-
+        <hr style={{ margin: "40px 0 24px", borderColor: "rgba(255,255,255,0.08)" }} />
         {(article.content || article.summary) && (
           <div className="feedback-box">
             <div>
@@ -763,8 +763,6 @@ export default function ArticlePage({
           <div
             style={{
               marginTop: "32px",
-              paddingTop: "32px",
-              borderTop: "1px solid rgba(255,255,255,0.06)",
               display: "flex",
               alignItems: "center",
               justifyContent: "space-between",

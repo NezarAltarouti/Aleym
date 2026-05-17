@@ -1,6 +1,76 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Popup from "reactjs-popup";
 import api from "../services/aleymApi";
+
+function InfoTooltip({ content }) {
+  const [visible, setVisible] = useState(false);
+  const iconRef = useRef(null);
+
+  return (
+    <span
+      ref={iconRef}
+      style={{ position: "relative", display: "inline-flex", alignItems: "center", marginLeft: "6px" }}
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      <svg
+        width="14" height="14" viewBox="0 0 24 24"
+        fill="none" stroke="#5a5a6a" strokeWidth="2"
+        strokeLinecap="round" strokeLinejoin="round"
+        style={{ cursor: "default", flexShrink: 0, display: "block" }}
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="8" strokeWidth="3" />
+        <line x1="12" y1="12" x2="12" y2="16" />
+      </svg>
+
+      {visible && (
+        <div style={{
+          position: "absolute",
+          bottom: "calc(100% + 10px)",
+          left: "-8px",
+          transform: "none",
+          background: "#1e1e26",
+          border: "1px solid rgba(255,255,255,0.1)",
+          borderRadius: "10px",
+          padding: "10px 14px",
+          width: "260px",
+          maxWidth: "calc(100vw - 48px)",
+          fontSize: "12px",
+          lineHeight: 1.65,
+          color: "#c8c6c1",
+          zIndex: 300,
+          boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+          pointerEvents: "none",
+          fontFamily: "'DM Sans', sans-serif",
+          fontWeight: 400,
+          whiteSpace: "normal",
+          wordBreak: "break-word",
+        }}>
+          {content}
+          <div style={{
+            position: "absolute",
+            top: "100%",
+            left: "12px",
+            width: 0, height: 0,
+            borderLeft: "6px solid transparent",
+            borderRight: "6px solid transparent",
+            borderTop: "6px solid rgba(255,255,255,0.1)",
+          }} />
+          <div style={{
+            position: "absolute",
+            top: "calc(100% - 1px)",
+            left: "12px",
+            width: 0, height: 0,
+            borderLeft: "5px solid transparent",
+            borderRight: "5px solid transparent",
+            borderTop: "5px solid #1e1e26",
+          }} />
+        </div>
+      )}
+    </span>
+  );
+}
 
 const overlayStyle = {
   background: "rgba(0,0,0,0.6)",
@@ -55,6 +125,7 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
   // Form state
   const [name, setName] = useState("");
   const [feedUrl, setFeedUrl] = useState("");
+  const [channelId, setChannelId] = useState("");
   const [network, setNetwork] = useState("Clear");
   const [fetcher, setFetcher] = useState("FeedRs");
   const [description, setDescription] = useState("");
@@ -81,6 +152,7 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
   const resetForm = () => {
     setName("");
     setFeedUrl("");
+    setChannelId("");
     setNetwork("Clear");
     setFetcher("FeedRs");
     setDescription("");
@@ -94,8 +166,12 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
       setError("Source name is required");
       return;
     }
-    if (!feedUrl.trim()) {
+    if (fetcher === "FeedRs" && !feedUrl.trim()) {
       setError("Feed URL is required");
+      return;
+    }
+    if (fetcher === "TelegramWeb" && !channelId.trim()) {
+      setError("Channel ID is required");
       return;
     }
 
@@ -104,7 +180,10 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
 
     try {
       // Step 1: Create the source via the API service
-      const informant = { [fetcher]: { feed_url: feedUrl.trim() } };
+      const informant =
+        fetcher === "FeedRs"
+          ? { FeedRs: { feed_url: feedUrl.trim() } }
+          : { TelegramWeb: { channel_id: channelId.trim() } };
       const payload = {
         name: name.trim(),
         network,
@@ -162,18 +241,23 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
     >
       {(close) => (
         <div
+          onClick={(e) => e.stopPropagation()}
           style={{
             background: "#1a1a22",
             border: "1px solid rgba(255,255,255,0.08)",
             borderRadius: "20px",
-            padding: "32px",
             width: "420px",
             maxWidth: "90vw",
+            maxHeight: "90vh",
+            display: "flex",
+            flexDirection: "column",
             fontFamily: "'DM Sans', sans-serif",
-            boxShadow:
-              "0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(199,146,234,0.08)",
+            boxShadow: "0 24px 80px rgba(0,0,0,0.5), 0 0 0 1px rgba(199,146,234,0.08)",
+            overflow: "hidden",
           }}
         >
+          {/* Scrollable body */}
+          <div style={{ padding: "32px 32px 0 32px", overflowY: "auto", flex: 1 }}>
           {/* Header */}
           <div style={{ marginBottom: "28px" }}>
             <h2
@@ -262,22 +346,56 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
               />
             </div>
 
-            <div style={fieldGroupStyle}>
-              <label style={labelStyle}>Feed URL *</label>
-              <input
-                type="text"
-                placeholder="e.g. https://feeds.feedburner.com/TheHackersNews"
-                value={feedUrl}
-                onChange={(e) => setFeedUrl(e.target.value)}
-                style={inputStyle}
-                onFocus={(e) =>
-                  (e.target.style.borderColor = "rgba(199,146,234,0.4)")
-                }
-                onBlur={(e) =>
-                  (e.target.style.borderColor = "rgba(255,255,255,0.08)")
-                }
-              />
-            </div>
+            {fetcher === "FeedRs" ? (
+              <div style={fieldGroupStyle}>
+                <label style={{ ...labelStyle, display: "flex", alignItems: "center" }}>
+                  Feed URL *
+                  <InfoTooltip content={
+                    <>
+                      The RSS or Atom feed URL of the website you want to follow.
+                      <br />
+                      <span style={{ color: "#82aaff" }}>Examples:</span>
+                      <br />
+                      <code style={{ color: "#c792ea" }}>https://example.com/rss.xml</code>
+                      
+                    </>
+                  } />
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://example.com/feed.rss"
+                  value={feedUrl}
+                  onChange={(e) => setFeedUrl(e.target.value)}
+                  style={inputStyle}
+                  onFocus={(e) => (e.target.style.borderColor = "rgba(199,146,234,0.4)")}
+                  onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.08)")}
+                />
+              </div>
+            ) : (
+              <div style={fieldGroupStyle}>
+                <label style={{ ...labelStyle, display: "flex", alignItems: "center" }}>
+                  Channel ID *
+                  <InfoTooltip content={
+                    <>
+                      The channel must be <span style={{ color: "#4ade80" }}>public</span>. Private channels cannot be fetched. You can find the username in the channel's profile on Telegram.
+                      <br/><span style={{ color: "#82aaff" }}>Example:</span>
+                      <br />
+                      <code style={{ color: "#c792ea" }}>@examplechannel </code>
+                      <br /> <span style={{ color: "#be3b3b" }}>note: put channel username without @</span><br/>
+                    </>
+                  } />
+                </label>
+                <input
+                  type="text"
+                  placeholder="channelname"
+                  value={channelId}
+                  onChange={(e) => setChannelId(e.target.value)}
+                  style={inputStyle}
+                  onFocus={(e) => (e.target.style.borderColor = "rgba(199,146,234,0.4)")}
+                  onBlur={(e) => (e.target.style.borderColor = "rgba(255,255,255,0.08)")}
+                />
+              </div>
+            )}
 
             <div style={fieldGroupStyle}>
               <label style={labelStyle}>Description</label>
@@ -297,12 +415,24 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
             </div>
 
             <div style={fieldGroupStyle}>
-              <label style={labelStyle}>Network</label>
+              <label style={labelStyle}>
+                Network
+                {fetcher === "TelegramWeb" && (
+                  <span style={{ marginLeft: "8px", fontSize: "11px", color: "#5a5a6a", fontWeight: 400 }}>
+                    (Telegram requires Clear Net)
+                  </span>
+                )}
+              </label>
               <select
                 className="aleym-select"
                 value={network}
                 onChange={(e) => setNetwork(e.target.value)}
-                style={selectStyle}
+                disabled={fetcher === "TelegramWeb"}
+                style={{
+                  ...selectStyle,
+                  opacity: fetcher === "TelegramWeb" ? 0.5 : 1,
+                  cursor: fetcher === "TelegramWeb" ? "not-allowed" : "pointer",
+                }}
               >
                 <option value="Clear">Clear Net</option>
                 <option value="Tor">Tor</option>
@@ -314,10 +444,15 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
               <select
                 className="aleym-select"
                 value={fetcher}
-                onChange={(e) => setFetcher(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setFetcher(v);
+                  if (v === "TelegramWeb") setNetwork("Clear");
+                }}
                 style={selectStyle}
               >
                 <option value="FeedRs">Feed (RSS/Atom)</option>
+                <option value="TelegramWeb">Telegram Channel</option>
               </select>
             </div>
 
@@ -463,15 +598,40 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
             </div>
           </div>
 
-          {/* Action buttons */}
+          <style>{`
+            @keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
+
+            select.aleym-select {
+              color-scheme: dark;
+            }
+            select.aleym-select option {
+              background-color: #16161c;
+              color: #e8e6e1;
+              padding: 10px 12px;
+              font-family: 'DM Sans', sans-serif;
+              font-size: 14px;
+            }
+            select.aleym-select option:checked,
+            select.aleym-select option:hover {
+              background: linear-gradient(0deg, rgba(199,146,234,0.2), rgba(199,146,234,0.2)) #16161c;
+              color: #e8e6e1;
+            }
+            select.aleym-select option:disabled {
+              color: #5a5a6a;
+            }
+          `}</style>
+          </div>{/* end scrollable body */}
+
+          {/* Sticky footer */}
           <div
             style={{
               display: "flex",
               justifyContent: "flex-end",
               gap: "10px",
-              marginTop: "28px",
-              paddingTop: "20px",
+              padding: "16px 32px 24px 32px",
               borderTop: "1px solid rgba(255,255,255,0.05)",
+              flexShrink: 0,
+              background: "#1a1a22",
             }}
           >
             <button
@@ -550,29 +710,6 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
               {saving ? "Saving…" : "Save"}
             </button>
           </div>
-
-          <style>{`
-            @keyframes spin { 0%{transform:rotate(0deg)} 100%{transform:rotate(360deg)} }
-
-            select.aleym-select {
-              color-scheme: dark;
-            }
-            select.aleym-select option {
-              background-color: #16161c;
-              color: #e8e6e1;
-              padding: 10px 12px;
-              font-family: 'DM Sans', sans-serif;
-              font-size: 14px;
-            }
-            select.aleym-select option:checked,
-            select.aleym-select option:hover {
-              background: linear-gradient(0deg, rgba(199,146,234,0.2), rgba(199,146,234,0.2)) #16161c;
-              color: #e8e6e1;
-            }
-            select.aleym-select option:disabled {
-              color: #5a5a6a;
-            }
-          `}</style>
         </div>
       )}
     </Popup>

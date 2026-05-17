@@ -9,6 +9,7 @@ import Sidebar, {
 import AddNewSource from "../components/AddNewSource";
 import NewCategory from "../components/NewCategory";
 import DeleteCategory from "../components/DeleteCategory";
+import DeleteSource from "../components/DeleteSource";
 import api from "../services/aleymApi";
 import { useData } from "../contexts/DataContext";
 
@@ -1060,18 +1061,18 @@ useEffect(() => {
             </div>
 
             <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-              <DeleteCategory
+              <AddNewSource
                 trigger={
                   <button
                     style={{
                       padding: "10px 20px",
                       fontSize: "13px",
-                      fontWeight: 500,
+                      fontWeight: 600,
                       fontFamily: "'DM Sans', sans-serif",
                       borderRadius: "10px",
-                      border: "1px solid rgba(255,100,100,0.2)",
-                      background: "rgba(255,100,100,0.05)",
-                      color: "#ff6464",
+                      border: "none",
+                      background: "linear-gradient(135deg, #c792ea, #82aaff)",
+                      color: "#0e0e12",
                       cursor: "pointer",
                       transition: "all 0.2s ease",
                       display: "flex",
@@ -1085,18 +1086,16 @@ useEffect(() => {
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2"
+                      strokeWidth="2.5"
                       strokeLinecap="round"
                     >
-                      <polyline points="3 6 5 6 21 6" />
-                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-                      <line x1="10" y1="11" x2="10" y2="17" />
-                      <line x1="14" y1="11" x2="14" y2="17" />
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
-                    Delete Category
+                    Add Source
                   </button>
                 }
-                onCategoryDeleted={handleRefresh}
+                onSourceAdded={handleRefresh}
               />
 
               <NewCategory
@@ -1136,18 +1135,18 @@ useEffect(() => {
                 onCategoryAdded={handleRefresh}
               />
 
-              <AddNewSource
+              <DeleteCategory
                 trigger={
                   <button
                     style={{
                       padding: "10px 20px",
                       fontSize: "13px",
-                      fontWeight: 600,
+                      fontWeight: 500,
                       fontFamily: "'DM Sans', sans-serif",
                       borderRadius: "10px",
-                      border: "none",
-                      background: "linear-gradient(135deg, #c792ea, #82aaff)",
-                      color: "#0e0e12",
+                      border: "1px solid rgba(255,100,100,0.2)",
+                      background: "rgba(255,100,100,0.05)",
+                      color: "#ff6464",
                       cursor: "pointer",
                       transition: "all 0.2s ease",
                       display: "flex",
@@ -1161,17 +1160,55 @@ useEffect(() => {
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
-                      strokeWidth="2.5"
+                      strokeWidth="2"
                       strokeLinecap="round"
                     >
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      <line x1="10" y1="11" x2="10" y2="17" />
+                      <line x1="14" y1="11" x2="14" y2="17" />
                     </svg>
-                    Add Source
+                    Delete Category
                   </button>
                 }
-                onSourceAdded={handleRefresh}
+                onCategoryDeleted={handleRefresh}
               />
+
+              <DeleteSource
+                trigger={
+                  <button
+                    style={{
+                      padding: "10px 20px",
+                      fontSize: "13px",
+                      fontWeight: 500,
+                      fontFamily: "'DM Sans', sans-serif",
+                      borderRadius: "10px",
+                      border: "1px solid rgba(255,100,100,0.2)",
+                      background: "rgba(255,100,100,0.05)",
+                      color: "#ff6464",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    <svg
+                      width="14" height="14" viewBox="0 0 24 24"
+                      fill="none" stroke="currentColor"
+                      strokeWidth="2" strokeLinecap="round"
+                    >
+                      <polyline points="3 6 5 6 21 6" />
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                      <line x1="10" y1="11" x2="10" y2="17" />
+                      <line x1="14" y1="11" x2="14" y2="17" />
+                    </svg>
+                    Delete Sources
+                  </button>
+                }
+                onSourceDeleted={handleRefresh}
+              />
+
             </div>
           </div>
 

@@ -50,6 +50,7 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
   const [hoveredBtn, setHoveredBtn] = useState(null);
   const [categories, setCategories] = useState([]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
 
   // Form state
   const [name, setName] = useState("");
@@ -66,6 +67,7 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
 
   // Load categories on mount
   useEffect(() => {
+    if (!isOpen) return;
     let alive = true;
     api.categories
       .list()
@@ -73,10 +75,8 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
         if (alive) setCategories(cats || []);
       })
       .catch((err) => console.warn("Failed to load categories:", err));
-    return () => {
-      alive = false;
-    };
-  }, []);
+    return () => { alive = false; };
+  }, [isOpen]);
 
   const resetForm = () => {
     setName("");
@@ -154,7 +154,11 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
         padding: 0,
         width: "auto",
       }}
-      onClose={resetForm}
+      onOpen={() => setIsOpen(true)}
+      onClose={() => {
+        setIsOpen(false);
+        resetForm();
+      }}
     >
       {(close) => (
         <div

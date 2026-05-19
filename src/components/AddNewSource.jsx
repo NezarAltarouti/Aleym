@@ -417,21 +417,14 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
             <div style={fieldGroupStyle}>
               <label style={labelStyle}>
                 Network
-                {fetcher === "TelegramWeb" && (
-                  <span style={{ marginLeft: "8px", fontSize: "11px", color: "#5a5a6a", fontWeight: 400 }}>
-                    (Telegram requires Clear Net)
-                  </span>
-                )}
+                {fetcher === "TelegramWeb" }
               </label>
               <select
                 className="aleym-select"
                 value={network}
                 onChange={(e) => setNetwork(e.target.value)}
-                disabled={fetcher === "TelegramWeb"}
                 style={{
-                  ...selectStyle,
-                  opacity: fetcher === "TelegramWeb" ? 0.5 : 1,
-                  cursor: fetcher === "TelegramWeb" ? "not-allowed" : "pointer",
+                  ...selectStyle
                 }}
               >
                 <option value="Clear">Clear Net</option>

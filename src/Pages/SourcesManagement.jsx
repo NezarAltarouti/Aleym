@@ -33,6 +33,14 @@ function EditSourceModal({ source, onClose, onSaved }) {
   const [hoveredBtn, setHoveredBtn] = useState(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
 
+  const labelStyle = {
+    fontSize: "13px",
+    fontWeight: 500,
+    color: "#b0b0c0",
+    marginBottom: "6px",
+    display: "block",
+  };
+
   useEffect(() => {
     const handler = (e) => {
       if (e.key === "Escape") onClose();
@@ -219,9 +227,15 @@ function EditSourceModal({ source, onClose, onSaved }) {
         )}
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
           <div>
-            <label style={label}>Source Name *</label>
+             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <label style={labelStyle}>Source Name *</label>
+                <span style={{ fontSize: "11px", color: name.length >= 20 ? "#ff6464" : "#5a5a6a" }}>
+                  {name.length}/20
+                </span>
+              </div>
             <input
               value={name}
+              maxLength={20}
               onChange={(e) => setName(e.target.value)}
               style={inputStyle}
               onFocus={(e) =>

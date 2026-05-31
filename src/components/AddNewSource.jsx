@@ -329,12 +329,18 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
           <div
             style={{ display: "flex", flexDirection: "column", gap: "18px" }}
           >
-            <div style={fieldGroupStyle}>
-              <label style={labelStyle}>Source Name *</label>
+                        <div style={fieldGroupStyle}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <label style={labelStyle}>Source Name *</label>
+                <span style={{ fontSize: "11px", color: name.length >= 20 ? "#ff6464" : "#5a5a6a" }}>
+                  {name.length}/20
+                </span>
+              </div>
               <input
                 type="text"
                 placeholder="e.g. The Hacker News"
                 value={name}
+                maxLength={20}
                 onChange={(e) => setName(e.target.value)}
                 style={inputStyle}
                 onFocus={(e) =>

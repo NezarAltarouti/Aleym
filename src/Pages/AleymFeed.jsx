@@ -709,7 +709,7 @@ export default function AleymFeed({
           marginLeft: `${marginLeft}px`,
           width: compactMode ? "100%" : `calc(100vw - ${marginLeft}px)`,
           transition: enableTransition
-            ? "margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1)"
+            ? "margin-left 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94), width 0.35s cubic-bezier(0.25, 0.46, 0.45, 0.94)"
             : "none",
           minHeight: "100vh",
           background: "#0e0e12",
@@ -1286,7 +1286,6 @@ function FeedArticleCard({
           ? "2px solid rgba(199,146,234,0.55)"
           : "2px solid transparent",
         outlineOffset: "2px",
-        transition: "outline-color 0.2s ease",
       }}
     >
       {isGrid ? <NewsCardGrid {...cardProps} /> : <NewsCard {...cardProps} />}

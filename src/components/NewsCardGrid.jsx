@@ -392,82 +392,19 @@ export default function NewsCardGrid({
                 borderRadius: "6px",
                 padding: "3px 10px",
                 transition: "all 0.25s ease",
+                minWidth: 0,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                flexShrink: 1,
               }}
             >
               {source || "News"}
             </div>
 
             {/* Button group */}
-            <div style={{ display: "flex", gap: "6px" }}>
-              {/* ---- AI Summarize (kept visible) ---- */}
-              <SummarizeButton
-                articleId={id}
-                onSummarize={onSummarize}
-                iconBtnStyle={iconBtnStyle}
-                tooltipStyle={tooltipStyle}
-                strokeFor={strokeFor}
-              />
+            <div style={{ display: "flex", gap: "6px", flexShrink: 0, marginLeft: "8px"}}>
 
-              {/* ---- Source link (kept visible) ---- */}
-              <div
-                style={{ position: "relative" }}
-                onMouseEnter={() => setHoveredBtn("source")}
-                onMouseLeave={() => setHoveredBtn(null)}
-              >
-                <a
-                  href={url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ display: "flex", textDecoration: "none" }}
-                >
-                  <div
-                    style={{
-                      width: "32px",
-                      height: "32px",
-                      borderRadius: "10px",
-                      background:
-                        hoveredBtn === "source"
-                          ? "linear-gradient(135deg, #c792ea, #82aaff)"
-                          : "rgba(255,255,255,0.04)",
-                      border: "1px solid",
-                      borderColor:
-                        hoveredBtn === "source"
-                          ? "transparent"
-                          : "rgba(255,255,255,0.06)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      cursor: "pointer",
-                      flexShrink: 0,
-                      transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
-                    }}
-                  >
-                    <svg
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke={hoveredBtn === "source" ? "#0e0e12" : "#6a6a7a"}
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{
-                        transition: "stroke 0.2s ease, transform 0.2s ease",
-                        transform:
-                          hoveredBtn === "source"
-                            ? "translateX(2px)"
-                            : "translateX(0)",
-                      }}
-                    >
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                      <polyline points="12 5 19 12 12 19" />
-                    </svg>
-                  </div>
-                </a>
-                {hoveredBtn === "source" && (
-                  <div style={tooltipStyle}>Redirect to source</div>
-                )}
-              </div>
 
               {/* ---- Kebab menu (groups upvote / downvote / read) ---- */}
               <div
@@ -537,6 +474,75 @@ export default function NewsCardGrid({
                       gap: "2px",
                     }}
                   >
+                    
+                    {/* ---- AI Summarize ---- */}
+                    <SummarizeButton
+                      articleId={id}
+                      onSummarize={onSummarize}
+                      iconBtnStyle={iconBtnStyle}
+                      tooltipStyle={tooltipStyle}
+                      strokeFor={strokeFor}
+                    />
+                    {/* ---- Source link ---- */}
+                    <div
+                      style={{ position: "relative" }}
+                      onMouseEnter={() => setHoveredBtn("source")}
+                      onMouseLeave={() => setHoveredBtn(null)}
+                    >
+                      <a
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ display: "flex", textDecoration: "none" }}
+                      >
+                    <div
+                        style={{
+                          width: "32px",
+                          height: "32px",
+                          borderRadius: "10px",
+                          background:
+                            hoveredBtn === "source"
+                              ? "linear-gradient(135deg, #c792ea, #82aaff)"
+                              : "rgba(255,255,255,0.04)",
+                          border: "1px solid",
+                          borderColor:
+                            hoveredBtn === "source"
+                              ? "transparent"
+                              : "rgba(255,255,255,0.06)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                          flexShrink: 0,
+                          transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
+                        }}
+                        >
+                          <svg
+                            width="14"
+                            height="14"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke={hoveredBtn === "source" ? "#0e0e12" : "#6a6a7a"}
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            style={{
+                              transition: "stroke 0.2s ease, transform 0.2s ease",
+                              transform:
+                                hoveredBtn === "source"
+                                ? "translateX(2px)"
+                                : "translateX(0)",
+                            }}
+                          >
+                            <line x1="5" y1="12" x2="19" y2="12" />
+                            <polyline points="12 5 19 12 12 19" />
+                          </svg>
+                        </div>
+                      </a>
+                      {hoveredBtn === "source" && (
+                        <div style={tooltipStyle}>Redirect to source</div>
+                         )}
+                    </div>
                     {/* Upvote menu item */}
                     <button
                       type="button"
@@ -680,7 +686,7 @@ export default function NewsCardGrid({
               overflow: "hidden",
             }}
           >
-            {title}
+            {stripHtml(title)}
           </h3>
 
           {/* Description */}

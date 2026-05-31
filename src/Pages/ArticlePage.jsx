@@ -455,7 +455,7 @@ export default function ArticlePage({
             margin: "0 0 20px 0",
           }}
         >
-          {article.title}
+          {stripHtml(article.title)}
         </h1>
 
         <div

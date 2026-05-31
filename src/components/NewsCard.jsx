@@ -569,7 +569,7 @@ export default function NewsCard({
               overflow: "hidden",
             }}
           >
-            {title}
+            {stripHtml(title)}
           </h3>
 
           {/* Description */}

@@ -7,6 +7,17 @@ import { useState } from "react";
  *   - index: for staggered animation
  *   - onSelect: callback when clicking to read full article
  */
+
+function stripHtml(html) {
+  if (!html || typeof html !== "string") return "";
+  // Use the browser's parser to safely extract text content
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  const text = doc.body.textContent || "";
+  // Collapse whitespace (newlines, tabs, multiple spaces) into single spaces
+  return text.replace(/\s+/g, " ").trim();
+}
+
+
 export default function AleymArticleCard({
   title,
   uri,
@@ -295,7 +306,7 @@ export default function AleymArticleCard({
               overflow: "hidden",
             }}
           >
-            {title}
+            {stripHtml(title)}
           </h3>
 
           {/* Content preview */}
@@ -312,7 +323,7 @@ export default function AleymArticleCard({
                 overflow: "hidden",
               }}
             >
-              {content}
+              {stripHtml(content)}
             </p>
           )}
         </div>

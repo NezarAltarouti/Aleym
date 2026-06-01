@@ -4,6 +4,7 @@ import SourcesManagements from "./Pages/SourcesManagement";
 import AleymFeed from "./Pages/AleymFeed";
 import ArticlePage from "./Pages/ArticlePage";
 import ForYou from "./Pages/ForYou";
+import Settings from "./Pages/Settings";
 import SummaryModal from "./components/SummaryModal";
 
 // SLIDE-IN PANEL VERSION
@@ -17,7 +18,13 @@ const NAV_KEY = "navState";
 
 // "article" is included as a fallback route for refresh-recovery when no
 // feed is open.
-const VALID_PAGES = new Set(["sources", "aleym", "foryou", "article"]);
+const VALID_PAGES = new Set([
+  "sources",
+  "aleym",
+  "foryou",
+  "settings",
+  "article",
+]);
 const VALID_RETURN_PAGES = new Set(["sources", "aleym", "foryou"]);
 
 // Feed pages — these support the slide-in article panel.
@@ -106,13 +113,13 @@ export default function App() {
           categoryIds: Array.isArray(data.categoryIds)
             ? data.categoryIds
             : data.categoryIds
-            ? [data.categoryIds]
-            : [],
+              ? [data.categoryIds]
+              : [],
           sourceIds: Array.isArray(data.sourceIds)
             ? data.sourceIds
             : data.sourceIds
-            ? [data.sourceIds]
-            : [],
+              ? [data.sourceIds]
+              : [],
         });
       }
     }
@@ -231,26 +238,27 @@ export default function App() {
         @supports not (overflow-y: overlay) { body { overflow-y: auto; } }
       `}</style>
 
-      {page === "sources" && <SourcesManagements navigateTo={navigateTo} />}
-      {page === "aleym" && renderFeedWithSlide(AleymFeed, "aleym")}
-      {page === "foryou" && renderFeedWithSlide(ForYou, "foryou")}
-      {/* Standalone article route — only reached when navigating from a
+        {page === "sources" && <SourcesManagements navigateTo={navigateTo} />}
+        {page === "aleym" && renderFeedWithSlide(AleymFeed, "aleym")}
+        {page === "foryou" && renderFeedWithSlide(ForYou, "foryou")}
+        {page === "settings" && <Settings navigateTo={navigateTo} />}
+        {/* Standalone article route — only reached when navigating from a
           non-feed page, or recovering from a refresh that landed here. */}
-      {page === "article" && (
-        <ArticlePage
-          articleId={selectedArticleId}
-          navigateTo={navigateTo}
-          returnTo={articleReturnTo}
-        />
-      )}
+        {page === "article" && (
+          <ArticlePage
+            articleId={selectedArticleId}
+            navigateTo={navigateTo}
+            returnTo={articleReturnTo}
+          />
+        )}
 
-      {/* AI Summary popup — overlays everything, controlled at app level so
+        {/* AI Summary popup — overlays everything, controlled at app level so
           it can be opened from any feed/page without prop-drilling. */}
-      <SummaryModal
-        articleId={summaryArticleId}
-        onClose={() => setSummaryArticleId(null)}
-      />
-    </>
+        <SummaryModal
+          articleId={summaryArticleId}
+          onClose={() => setSummaryArticleId(null)}
+        />
+      </>
     </DataProvider>
   );
 }

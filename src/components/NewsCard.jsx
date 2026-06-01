@@ -1,6 +1,11 @@
 import { useState, useEffect } from "react";
 import api from "../services/aleymApi";
 import SummarizeButton from "./SummarizeButton";
+import {
+  useArticleLabels,
+  LabelChips,
+  LabelContextMenu,
+} from "./ArticleLabels";
 
 // NO ANIMATION (NO SLIDE)
 
@@ -28,6 +33,7 @@ function stripHtml(html) {
  *   - isRead: boolean — current read state from the API
  *   - onReadChange: (newIsRead: boolean) => void — parent callback when read flag toggles
  *   - onSummarize: (articleId: string) => void — callback to open AI summary view
+ *   - navigateTo: (route: string) => void — optional; lets the label menu jump to Settings
  *   - index: number (for staggered animation)
  */
 export default function NewsCard({
@@ -43,10 +49,27 @@ export default function NewsCard({
   isRead = false,
   onReadChange,
   onSummarize,
+  navigateTo,
   index = 0,
 }) {
   const [hovered, setHovered] = useState(false);
   const [hoveredBtn, setHoveredBtn] = useState(null);
+
+  // ---- Labels ----
+  const labels = useArticleLabels(id);
+  const [labelMenu, setLabelMenu] = useState(null); // { x, y } | null
+
+  // Load this article's labels on mount so the inline chips render.
+  useEffect(() => {
+    if (id) labels.loadAssigned();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const handleContextMenu = (e) => {
+    if (!id) return;
+    e.preventDefault();
+    setLabelMenu({ x: e.clientX, y: e.clientY });
+  };
 
   // ---- Vote state (persisted via localStorage) ----
   const [vote, setVote] = useState(() => {
@@ -273,6 +296,7 @@ export default function NewsCard({
         setHoveredBtn(null);
       }}
       onClick={handleCardClick}
+      onContextMenu={handleContextMenu}
       style={{
         display: "block",
         textDecoration: "none",
@@ -592,6 +616,14 @@ export default function NewsCard({
               </p>
             ) : null;
           })()}
+
+          {/* ---- Assigned labels (inline, list view) ---- */}
+          {labels.assignedLabels.length > 0 && (
+            <LabelChips
+              labels={labels.assignedLabels}
+              style={{ marginTop: "12px" }}
+            />
+          )}
         </div>
 
         {/* Bottom: Date row */}
@@ -663,6 +695,18 @@ export default function NewsCard({
           )}
         </div>
       </div>
+
+      {/* ---- Right-click label menu (list: opens straight to picker) ---- */}
+      {labelMenu && (
+        <LabelContextMenu
+          labels={labels}
+          variant="list"
+          x={labelMenu.x}
+          y={labelMenu.y}
+          onClose={() => setLabelMenu(null)}
+          navigateTo={navigateTo}
+        />
+      )}
     </div>
   );
 }

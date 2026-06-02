@@ -136,7 +136,6 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
 
-
   const resetForm = () => {
     setName("");
     setFeedUrl("");
@@ -258,6 +257,44 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
             <p style={{ fontSize: "12px", color: "#5a5a6a", margin: 0 }}>
               Configure a new news source
             </p>
+            
+            {/* Conditional Telegram Warning Note */}
+            {fetcher === "TelegramWeb" && (
+              <div
+                style={{
+                  marginTop: "14px",
+                  padding: "10px 14px",
+                  borderRadius: "8px",
+                  background: "rgba(130,170,255,0.08)",
+                  border: "1px solid rgba(130,170,255,0.2)",
+                  color: "#82aaff",
+                  fontSize: "12px",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "8px",
+                  lineHeight: 1.5,
+                }}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ flexShrink: 0, marginTop: "2px" }}
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+                <span>
+                  <strong>Note:</strong> The Telegram fetcher is an unofficial tool and operates independently of Telegram's official API.
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Success message */}

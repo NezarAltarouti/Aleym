@@ -58,7 +58,7 @@ const SECTIONS = [
     key: "configuration",
     label: "Configuration",
     description:
-      "Tune the scheduler that decides how often each source is fetched and how feedback signals are weighted. These settings are written to the server config and require a server restart to take effect.",
+      "Tune the scheduler that decides how often each source is fetched and how feedback signals are weighted.",
     icon: (
       <svg
         width="18"

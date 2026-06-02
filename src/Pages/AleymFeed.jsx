@@ -24,6 +24,12 @@ const HEAD_POLL_MS = 20_000;
 const HEAD_POLL_PAGE_SIZE = 50;
 const MANUAL_FETCH_TIMEOUT_MS = 15_000;
 
+// How far (px) the reader can scroll from the very top and still have new
+// articles spliced straight into the feed. Past this, new articles are
+// buffered behind the floating "N new articles" pill instead. Lower it to make
+// the pill appear sooner.
+const TOP_REVEAL_GRACE_PX = 80;
+
 const TOAST_TTL_MS = 7000;
 const MAX_TOASTS = 4;
 
@@ -594,12 +600,37 @@ export default function AleymFeed({
         : fresh;
       if (filteredFresh.length === 0) return;
 
-      setPendingNewArticles((prev) => {
-        const seen = new Set(prev.map((a) => a.id));
-        const dedup = filteredFresh.filter((a) => !seen.has(a.id));
-        if (dedup.length === 0) return prev;
-        return [...dedup, ...prev];
-      });
+      // Where is the reader right now? scrollAnchorRef sits at the very top of
+      // the feed content; once it has scrolled well above the viewport top, the
+      // reader is "scrolled down". Reading it here (a ref) keeps pollHead's
+      // identity stable, so the 20s interval isn't torn down on every render.
+      // getBoundingClientRect is viewport-relative, so this works whether the
+      // page scrolls on window (full mode) or in a parent container (compact).
+      const anchorEl = scrollAnchorRef.current;
+      const atTop =
+        !anchorEl ||
+        anchorEl.getBoundingClientRect().top > -TOP_REVEAL_GRACE_PX;
+
+      if (atTop) {
+        // At the top: splice straight into the feed. sortedArticles re-sorts by
+        // first_fetched_at, so the new items appear at the top where the reader
+        // sees them — no pill, no full reload, existing cards stay mounted.
+        setArticles((prev) => {
+          const seen = new Set(prev.map((a) => a.id));
+          const dedup = filteredFresh.filter((a) => !seen.has(a.id));
+          if (dedup.length === 0) return prev;
+          return [...dedup, ...prev];
+        });
+      } else {
+        // Scrolled down: stash them so the floating "N new articles" pill
+        // appears instead of shifting the page under the reader.
+        setPendingNewArticles((prev) => {
+          const seen = new Set(prev.map((a) => a.id));
+          const dedup = filteredFresh.filter((a) => !seen.has(a.id));
+          if (dedup.length === 0) return prev;
+          return [...dedup, ...prev];
+        });
+      }
     } catch (err) {
       // Background poll — intentionally quiet. Surfacing this as a toast every
       // 20s would be noise; a real outage shows up via the feed/SSE instead.

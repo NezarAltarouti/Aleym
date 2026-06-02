@@ -53,7 +53,7 @@ export default function AleymFeed({
     return saved !== null ? JSON.parse(saved) : true;
   });
   const [viewMode, setViewMode] = useState(
-    () => localStorage.getItem("viewMode") || "compact",
+    () => localStorage.getItem("viewMode") || "grid",
   );
   const [enableTransition, setEnableTransition] = useState(false);
 
@@ -1244,7 +1244,22 @@ function FeedArticleCard({
       { threshold: 0.5 },
     );
     obs.observe(el);
-    const onBeforeUnload = () => flushAppearance();
+    const onBeforeUnload = () => {
+      if (flushedRef.current) return;
+      if (!sessionRef.current || startedAtRef.current === null) return;
+      const activeMs = sessionRef.current.stop();
+      if (activeMs >= MIN_APPEARANCE_MS) {
+        flushedRef.current = true;
+        navigator.sendBeacon(
+          "/api/feedback/appearance",
+          JSON.stringify({
+            news: article.id,
+            happened_at: Math.floor(startedAtRef.current / 1000),
+            duration: activeMs,
+          })
+        );
+      }
+    };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => {
       obs.disconnect();

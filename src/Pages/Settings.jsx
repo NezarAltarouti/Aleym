@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Sidebar, {
   SIDEBAR_WIDTH_OPEN,
   SIDEBAR_WIDTH_CLOSED,
@@ -23,10 +23,11 @@ function readSidebarOpen() {
 }
 
 // ---------------------------------------------------------------------------
-// Sections
+// Sections (tabs)
 // ---------------------------------------------------------------------------
-// When `SECTIONS.length > 1`, a section selector pane renders on the left.
-// For now there's only Labels, so the page goes straight to its content.
+// The left rail always renders one button per entry here. Adding more objects
+// to this array automatically adds more tabs, each opening its own content on
+// the right.
 
 const SECTIONS = [
   {
@@ -35,9 +36,46 @@ const SECTIONS = [
     description:
       "Create your labels to organize articles by topic, priority, or anything else that helps you find things later.",
     icon: (
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
         <line x1="7" y1="7" x2="7.01" y2="7" />
+      </svg>
+    ),
+  },
+  {
+    key: "configuration",
+    label: "Configuration",
+    description:
+      "Tune the scheduler that decides how often each source is fetched and how feedback signals are weighted. These settings are written to the server config and require a server restart to take effect.",
+    icon: (
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <line x1="4" y1="21" x2="4" y2="14" />
+        <line x1="4" y1="10" x2="4" y2="3" />
+        <line x1="12" y1="21" x2="12" y2="12" />
+        <line x1="12" y1="8" x2="12" y2="3" />
+        <line x1="20" y1="21" x2="20" y2="16" />
+        <line x1="20" y1="12" x2="20" y2="3" />
+        <line x1="1" y1="14" x2="7" y2="14" />
+        <line x1="9" y1="8" x2="15" y2="8" />
+        <line x1="17" y1="16" x2="23" y2="16" />
       </svg>
     ),
   },
@@ -55,7 +93,9 @@ export default function Settings({ navigateTo }) {
 
   const sidebarWidth = sidebarOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED;
   const active = SECTIONS.find((s) => s.key === activeSection) || SECTIONS[0];
-  const showSectionNav = SECTIONS.length > 1;
+  // Always show the left tab rail (even with a single section). Built to scale
+  // as more tabs get added to SECTIONS later.
+  const showSectionNav = SECTIONS.length >= 1;
 
   return (
     <>
@@ -121,7 +161,9 @@ export default function Settings({ navigateTo }) {
           </header>
 
           {/* ---- Body ---- */}
-          <div style={{ display: "flex", gap: "40px", alignItems: "flex-start" }}>
+          <div
+            style={{ display: "flex", gap: "40px", alignItems: "flex-start" }}
+          >
             {showSectionNav && (
               <aside
                 style={{
@@ -150,16 +192,20 @@ export default function Settings({ navigateTo }) {
                         background: isActive
                           ? "rgba(199,146,234,0.10)"
                           : isHover
-                          ? "rgba(255,255,255,0.03)"
-                          : "transparent",
+                            ? "rgba(255,255,255,0.03)"
+                            : "transparent",
                         border: "1px solid",
                         borderColor: isActive
                           ? "rgba(199,146,234,0.22)"
                           : isHover
-                          ? "rgba(255,255,255,0.06)"
-                          : "transparent",
+                            ? "rgba(255,255,255,0.06)"
+                            : "transparent",
                         borderRadius: "10px",
-                        color: isActive ? "#c792ea" : isHover ? "#e8e6e1" : "#9a9aab",
+                        color: isActive
+                          ? "#c792ea"
+                          : isHover
+                            ? "#e8e6e1"
+                            : "#9a9aab",
                         fontSize: "14px",
                         fontWeight: isActive ? 600 : 500,
                         fontFamily: "inherit",
@@ -201,8 +247,12 @@ export default function Settings({ navigateTo }) {
               }}
               key={activeSection}
             >
-              <SectionHeader title={active.label} subtitle={active.description} />
+              <SectionHeader
+                title={active.label}
+                subtitle={active.description}
+              />
               {activeSection === "labels" && <LabelsSection />}
+              {activeSection === "configuration" && <ConfigurationSection />}
             </main>
           </div>
         </div>
@@ -293,7 +343,10 @@ function LabelsSection() {
     setError(null);
     try {
       const desc = description.trim() ? description.trim() : null;
-      const newId = await api.labels.create({ name: trimmed, description: desc });
+      const newId = await api.labels.create({
+        name: trimmed,
+        description: desc,
+      });
       const id = typeof newId === "string" ? newId : String(newId);
       setLabels((prev) => [...prev, { id, name: trimmed, description: desc }]);
       setName("");
@@ -323,7 +376,7 @@ function LabelsSection() {
       };
       await api.labels.update(id, payload);
       setLabels((prev) =>
-        prev.map((l) => (l.id === id ? { ...l, ...payload } : l))
+        prev.map((l) => (l.id === id ? { ...l, ...payload } : l)),
       );
       setEditingId(null);
     } catch (e) {
@@ -549,6 +602,571 @@ function LabelsSection() {
 }
 
 // ---------------------------------------------------------------------------
+// Configuration section — wired to api.config (get / update).
+// ---------------------------------------------------------------------------
+//
+// Focus is the scheduler block, which is what's meant to be tuned. To stay
+// safe against the server's serde-default behavior (omitted top-level fields
+// like `network` / `paths` reset to defaults), we fetch the *whole* config on
+// mount, edit only `scheduler`, and send the merged whole config back on save.
+// That preserves network/paths exactly as they were.
+
+// Mirrors the Rust `Scheduler::default()` impl in config.rs.
+const SCHEDULER_DEFAULTS = Object.freeze({
+  min_fetch_interval: 900,
+  max_fetch_interval: 14400,
+  short_term_cutoff_time: 86400,
+  long_term_cutoff_time: 2592000,
+  fetch_freshness_bias: 0.2,
+  signals_count_limit: 1000,
+  publication_window_new_items_count_threshold: 15,
+});
+
+// Field metadata drives the rendered form. `kind` controls parsing/validation:
+//   "seconds" -> non-negative integer, shown with a humanized hint
+//   "int"     -> non-negative integer
+//   "float"   -> decimal within [min, max]
+const SCHEDULER_FIELDS = [
+  {
+    key: "min_fetch_interval",
+    label: "Minimum fetch interval",
+    kind: "seconds",
+    min: 0,
+    step: 60,
+    help: "Shortest delay the scheduler will wait before fetching the same source again.",
+  },
+  {
+    key: "max_fetch_interval",
+    label: "Maximum fetch interval",
+    kind: "seconds",
+    min: 0,
+    step: 60,
+    help: "Longest the scheduler will let a source go without a fetch.",
+  },
+  {
+    key: "short_term_cutoff_time",
+    label: "Short-term cutoff",
+    kind: "seconds",
+    min: 0,
+    step: 3600,
+    help: "Window used when weighting recent (short-term) feedback signals.",
+  },
+  {
+    key: "long_term_cutoff_time",
+    label: "Long-term cutoff",
+    kind: "seconds",
+    min: 0,
+    step: 86400,
+    help: "Window used when weighting older (long-term) feedback signals.",
+  },
+  {
+    key: "fetch_freshness_bias",
+    label: "Fetch freshness bias",
+    kind: "float",
+    min: 0,
+    max: 1,
+    step: 0.05,
+    help: "How strongly fresh items are favored when scheduling fetches. 0 = none, 1 = maximum.",
+  },
+  {
+    key: "signals_count_limit",
+    label: "Signals count limit",
+    kind: "int",
+    min: 0,
+    step: 100,
+    help: "Maximum number of user-feedback signals considered per computation.",
+  },
+  {
+    key: "publication_window_new_items_count_threshold",
+    label: "Publication window threshold",
+    kind: "int",
+    min: 0,
+    step: 1,
+    help: "New-item count that triggers a tighter publication-window estimate.",
+  },
+];
+
+function humanizeSeconds(total) {
+  const s = Number(total);
+  if (!Number.isFinite(s) || s < 0) return "";
+  if (s === 0) return "0s";
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = Math.floor(s % 60);
+  const parts = [];
+  if (d) parts.push(`${d}d`);
+  if (h) parts.push(`${h}h`);
+  if (m) parts.push(`${m}m`);
+  if (sec) parts.push(`${sec}s`);
+  return parts.join(" ");
+}
+
+function validateSchedulerField(field, rawValue) {
+  const v = String(rawValue).trim();
+  if (v === "") return "Required.";
+  const num = Number(v);
+  if (!Number.isFinite(num)) return "Must be a number.";
+  if (field.kind === "float") {
+    if (field.min != null && num < field.min) return `Must be ≥ ${field.min}.`;
+    if (field.max != null && num > field.max) return `Must be ≤ ${field.max}.`;
+  } else {
+    if (!Number.isInteger(num)) return "Must be a whole number.";
+    if (field.min != null && num < field.min) return `Must be ≥ ${field.min}.`;
+  }
+  return null;
+}
+
+function coerceSchedulerValue(field, rawValue) {
+  const num = Number(String(rawValue).trim());
+  return field.kind === "float" ? num : Math.trunc(num);
+}
+
+// Turn a scheduler object into the string-keyed map the inputs are bound to.
+function schedulerToFormValues(sched) {
+  const out = {};
+  for (const field of SCHEDULER_FIELDS) {
+    const raw =
+      sched && sched[field.key] != null
+        ? sched[field.key]
+        : SCHEDULER_DEFAULTS[field.key];
+    out[field.key] = String(raw);
+  }
+  return out;
+}
+
+function ConfigurationSection() {
+  // Full config kept verbatim so we can re-merge network/paths on save.
+  const [config, setConfig] = useState(null);
+  const [original, setOriginal] = useState({}); // last-saved scheduler form values
+  const [values, setValues] = useState({}); // current scheduler form values (strings)
+
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
+  const [saved, setSaved] = useState(false);
+
+  const savedTimer = useRef(null);
+
+  // ---- Load on mount ----
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const cfg = await api.config.get();
+        if (cancelled) return;
+        const sched = (cfg && cfg.scheduler) || { ...SCHEDULER_DEFAULTS };
+        const form = schedulerToFormValues(sched);
+        setConfig(cfg || {});
+        setOriginal(form);
+        setValues(form);
+      } catch (e) {
+        if (!cancelled)
+          setLoadError(e?.message || "Failed to load configuration.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Clear any pending "Saved" flash timer on unmount.
+  useEffect(() => () => clearTimeout(savedTimer.current), []);
+
+  const setField = (key, val) => {
+    setSaved(false);
+    setSaveError(null);
+    setValues((prev) => ({ ...prev, [key]: val }));
+  };
+
+  // Per-field validation errors.
+  const fieldErrors = {};
+  for (const field of SCHEDULER_FIELDS) {
+    const err = validateSchedulerField(field, values[field.key]);
+    if (err) fieldErrors[field.key] = err;
+  }
+  const hasErrors = Object.keys(fieldErrors).length > 0;
+
+  // Soft, non-blocking ordering warnings.
+  const warnings = [];
+  if (!hasErrors) {
+    const minI = Number(values.min_fetch_interval);
+    const maxI = Number(values.max_fetch_interval);
+    const shortC = Number(values.short_term_cutoff_time);
+    const longC = Number(values.long_term_cutoff_time);
+    if (Number.isFinite(minI) && Number.isFinite(maxI) && minI > maxI) {
+      warnings.push("Minimum fetch interval is larger than the maximum.");
+    }
+    if (Number.isFinite(shortC) && Number.isFinite(longC) && shortC > longC) {
+      warnings.push("Short-term cutoff is larger than the long-term cutoff.");
+    }
+  }
+
+  const dirty = SCHEDULER_FIELDS.some((f) => values[f.key] !== original[f.key]);
+  const canSave = !!config && dirty && !hasErrors && !saving;
+
+  const handleResetDefaults = () => {
+    setSaved(false);
+    setSaveError(null);
+    const form = {};
+    for (const field of SCHEDULER_FIELDS) {
+      form[field.key] = String(SCHEDULER_DEFAULTS[field.key]);
+    }
+    setValues(form);
+  };
+
+  const handleRevert = () => {
+    setSaved(false);
+    setSaveError(null);
+    setValues(original);
+  };
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    setSaveError(null);
+    setSaved(false);
+
+    // Build the coerced scheduler object.
+    const nextScheduler = { ...(config.scheduler || {}) };
+    for (const field of SCHEDULER_FIELDS) {
+      nextScheduler[field.key] = coerceSchedulerValue(field, values[field.key]);
+    }
+
+    // Merge into the full config so network/paths are preserved as-is and not
+    // reset to server defaults.
+    const merged = { ...config, scheduler: nextScheduler };
+
+    try {
+      await api.config.update(merged);
+      setConfig(merged);
+      const form = schedulerToFormValues(nextScheduler);
+      setOriginal(form);
+      setValues(form);
+      setSaved(true);
+      clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setSaved(false), 4000);
+    } catch (e) {
+      setSaveError(e?.message || "Failed to save configuration.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <CenteredNote text="Loading configuration…" />;
+  if (loadError) return <CenteredNote text={loadError} tone="error" />;
+
+  return (
+    <div>
+      {/* ---- Restart-required notice ---- */}
+      <div
+        style={{
+          display: "flex",
+          gap: "10px",
+          alignItems: "flex-start",
+          background: "rgba(130,170,255,0.07)",
+          border: "1px solid rgba(130,170,255,0.20)",
+          borderRadius: "10px",
+          padding: "12px 14px",
+          marginBottom: "22px",
+        }}
+      >
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#82aaff"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{ flexShrink: 0, marginTop: "1px" }}
+        >
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="16" x2="12" y2="12" />
+          <line x1="12" y1="8" x2="12.01" y2="8" />
+        </svg>
+        <p
+          style={{
+            fontSize: "13px",
+            color: "#a9bdf0",
+            lineHeight: 1.5,
+            margin: 0,
+          }}
+        >
+          These settings are written to the server config file. Restart the
+          server for changes to take effect.
+        </p>
+      </div>
+
+      {/* ---- Read-only context (preserved on save) ---- */}
+      {config && (config.network || config.paths) && (
+        <ReadonlyConfigSummary network={config.network} paths={config.paths} />
+      )}
+
+      {/* ---- Scheduler heading ---- */}
+      <div
+        style={{
+          fontSize: "12px",
+          letterSpacing: "1.5px",
+          textTransform: "uppercase",
+          color: "#5a5a6a",
+          margin: "4px 0 16px",
+        }}
+      >
+        Scheduler
+      </div>
+
+      {/* ---- Fields ---- */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
+        {SCHEDULER_FIELDS.map((field) => (
+          <ConfigNumberField
+            key={field.key}
+            field={field}
+            value={values[field.key] ?? ""}
+            error={fieldErrors[field.key]}
+            onChange={(v) => setField(field.key, v)}
+          />
+        ))}
+      </div>
+
+      {/* ---- Soft warnings ---- */}
+      {warnings.length > 0 && (
+        <div
+          style={{
+            background: "rgba(255,193,94,0.07)",
+            border: "1px solid rgba(255,193,94,0.22)",
+            borderRadius: "10px",
+            padding: "10px 14px",
+            marginTop: "18px",
+            fontSize: "13px",
+            color: "#e7c07a",
+            lineHeight: 1.5,
+          }}
+        >
+          {warnings.map((w, i) => (
+            <div key={i}>⚠ {w}</div>
+          ))}
+        </div>
+      )}
+
+      {/* ---- Save error ---- */}
+      {saveError && (
+        <div
+          style={{
+            background: "rgba(255,107,107,0.08)",
+            border: "1px solid rgba(255,107,107,0.25)",
+            borderRadius: "10px",
+            padding: "10px 14px",
+            marginTop: "18px",
+            fontSize: "13px",
+            color: "#ff9b9b",
+          }}
+        >
+          {saveError}
+        </div>
+      )}
+
+      {/* ---- Footer actions ---- */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "10px",
+          marginTop: "26px",
+          paddingTop: "20px",
+          borderTop: "1px solid rgba(255,255,255,0.05)",
+        }}
+      >
+        <GhostButton onClick={handleResetDefaults} label="Reset to defaults" />
+        {dirty && <GhostButton onClick={handleRevert} label="Revert changes" />}
+
+        <div style={{ flex: 1 }} />
+
+        {saved && (
+          <span
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              fontSize: "13px",
+              color: "#7ddf9b",
+              fontWeight: 500,
+            }}
+          >
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="#7ddf9b"
+              strokeWidth="2.4"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+            Saved — restart to apply
+          </span>
+        )}
+
+        <PrimaryButton
+          onClick={handleSave}
+          label={saving ? "Saving…" : "Save changes"}
+          disabled={!canSave}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Single labeled number input with help text, optional humanized hint, and
+// inline validation error.
+function ConfigNumberField({ field, value, error, onChange }) {
+  const [focus, setFocus] = useState(false);
+  const showHumanized = field.kind === "seconds";
+  const human = showHumanized ? humanizeSeconds(value) : "";
+
+  return (
+    <div>
+      <label style={fieldLabelStyle}>{field.label}</label>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+        <input
+          type="number"
+          inputMode={field.kind === "float" ? "decimal" : "numeric"}
+          min={field.min}
+          max={field.max}
+          step={field.step}
+          value={value}
+          onFocus={() => setFocus(true)}
+          onBlur={() => setFocus(false)}
+          onChange={(e) => onChange(e.target.value)}
+          style={{
+            ...textInputStyle,
+            width: "200px",
+            flexShrink: 0,
+            borderColor: error
+              ? "rgba(255,107,107,0.45)"
+              : focus
+                ? "rgba(199,146,234,0.40)"
+                : "rgba(255,255,255,0.08)",
+          }}
+        />
+        {showHumanized && human && (
+          <span
+            style={{
+              fontSize: "12.5px",
+              color: "#7a7a8a",
+              whiteSpace: "nowrap",
+            }}
+          >
+            ≈ {human}
+          </span>
+        )}
+      </div>
+      {error ? (
+        <p style={{ fontSize: "12px", color: "#ff9b9b", margin: "6px 0 0" }}>
+          {error}
+        </p>
+      ) : (
+        <p
+          style={{
+            fontSize: "12px",
+            color: "#6a6a7a",
+            margin: "6px 0 0",
+            lineHeight: 1.5,
+          }}
+        >
+          {field.help}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Compact, read-only view of the network/paths blocks so the user can see
+// what else lives in the config (and trust it's left untouched on save).
+function ReadonlyConfigSummary({ network, paths }) {
+  const rows = [];
+  if (network) {
+    if (network.host != null) rows.push(["Host", String(network.host)]);
+    if (network.port != null) rows.push(["Port", String(network.port)]);
+    if (network.tor_proxy_port != null)
+      rows.push(["Tor proxy port", String(network.tor_proxy_port)]);
+  }
+  if (paths && paths.db_file != null)
+    rows.push(["Database file", String(paths.db_file)]);
+  if (rows.length === 0) return null;
+
+  return (
+    <div
+      style={{
+        background: "#0e0e12",
+        border: "1px solid rgba(255,255,255,0.06)",
+        borderRadius: "12px",
+        padding: "16px 18px",
+        marginBottom: "24px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: "12px",
+          letterSpacing: "1.5px",
+          textTransform: "uppercase",
+          color: "#5a5a6a",
+          marginBottom: "12px",
+        }}
+      >
+        Network &amp; paths
+        <span
+          style={{
+            textTransform: "none",
+            letterSpacing: 0,
+            color: "#5a5a6a",
+            fontWeight: 400,
+          }}
+        >
+          {"  ·  read-only here"}
+        </span>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+        {rows.map(([k, v]) => (
+          <div
+            key={k}
+            style={{
+              display: "flex",
+              gap: "12px",
+              alignItems: "baseline",
+              fontSize: "13px",
+            }}
+          >
+            <span style={{ width: "130px", flexShrink: 0, color: "#7a7a8a" }}>
+              {k}
+            </span>
+            <span
+              style={{
+                color: "#c8c8d4",
+                fontFamily: "ui-monospace, 'SFMono-Regular', Menlo, monospace",
+                fontSize: "12.5px",
+                wordBreak: "break-all",
+              }}
+            >
+              {v}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Label row
 // ---------------------------------------------------------------------------
 
@@ -567,7 +1185,9 @@ function LabelRow({
 }) {
   const [hover, setHover] = useState(false);
   const [editName, setEditName] = useState(label.name || "");
-  const [editDescription, setEditDescription] = useState(label.description || "");
+  const [editDescription, setEditDescription] = useState(
+    label.description || "",
+  );
 
   // Reset draft values whenever we (re)enter edit mode or the underlying
   // label changes. Keeps stale text from leaking across rows.
@@ -590,15 +1210,16 @@ function LabelRow({
         background: editing
           ? "#0e0e12"
           : hover
-          ? "rgba(255,255,255,0.02)"
-          : "#0e0e12",
+            ? "rgba(255,255,255,0.02)"
+            : "#0e0e12",
         border: "1px solid",
         borderColor: editing
           ? "rgba(199,146,234,0.22)"
           : "rgba(255,255,255,0.06)",
         borderRadius: "10px",
         opacity: deleting ? 0.5 : 1,
-        transition: "background 0.15s ease, opacity 0.15s ease, border-color 0.15s ease",
+        transition:
+          "background 0.15s ease, opacity 0.15s ease, border-color 0.15s ease",
       }}
     >
       {editing ? (
@@ -764,12 +1385,13 @@ function EditButton({ onClick, labelName }) {
         justifyContent: "center",
         borderRadius: "8px",
         border: "1px solid",
-        borderColor: hover ? "rgba(130,170,255,0.30)" : "rgba(255,255,255,0.08)",
+        borderColor: hover
+          ? "rgba(130,170,255,0.30)"
+          : "rgba(255,255,255,0.08)",
         background: hover ? "rgba(130,170,255,0.10)" : "transparent",
         cursor: "pointer",
         padding: 0,
-        transition:
-          "background 0.15s ease, border-color 0.15s ease",
+        transition: "background 0.15s ease, border-color 0.15s ease",
       }}
     >
       <svg
@@ -810,7 +1432,9 @@ function RemoveButton({ onClick, labelName }) {
         justifyContent: "center",
         borderRadius: "8px",
         border: "1px solid",
-        borderColor: hover ? "rgba(255,107,107,0.45)" : "rgba(255,107,107,0.18)",
+        borderColor: hover
+          ? "rgba(255,107,107,0.45)"
+          : "rgba(255,107,107,0.18)",
         background: hover ? "rgba(255,107,107,0.12)" : "transparent",
         cursor: "pointer",
         padding: 0,
@@ -855,8 +1479,8 @@ function PrimaryButton({ onClick, label, plus = false, disabled = false }) {
         background: disabled
           ? "rgba(199,146,234,0.25)"
           : hover
-          ? "linear-gradient(135deg, #d4a3f0, #93b6ff)"
-          : "linear-gradient(135deg, #c792ea, #82aaff)",
+            ? "linear-gradient(135deg, #d4a3f0, #93b6ff)"
+            : "linear-gradient(135deg, #c792ea, #82aaff)",
         border: "none",
         borderRadius: "10px",
         color: "#0e0e12",
@@ -866,7 +1490,8 @@ function PrimaryButton({ onClick, label, plus = false, disabled = false }) {
         cursor: disabled ? "default" : "pointer",
         opacity: disabled ? 0.6 : 1,
         whiteSpace: "nowrap",
-        transition: "background 0.15s ease, transform 0.1s ease, opacity 0.15s ease",
+        transition:
+          "background 0.15s ease, transform 0.1s ease, opacity 0.15s ease",
         transform: hover && !disabled ? "translateY(-1px)" : "translateY(0)",
       }}
     >

@@ -9,6 +9,29 @@ import {
 import { createPortal } from "react-dom";
 import api from "../services/aleymApi";
 
+// ===========================================================================
+// ArticleLabels
+// ---------------------------------------------------------------------------
+// Shared building blocks for assigning the labels created in Settings to
+// individual articles.
+//
+//   • useArticleLabels(articleId) — loads all labels + the article's assigned
+//        labels and exposes a `toggle` that links/unlinks (optimistic).
+//   • <LabelChips />             — renders the assigned labels as small chips
+//        (used inline on the LIST card).
+//   • <LabelContextMenu />       — the right-click menu. In "list" mode it
+//        opens straight to the label picker; in "grid" mode it first offers
+//        two choices: "Assign labels" and "Assigned labels".
+//
+// Wiring lives in NewsCard.jsx (list) and NewsCardGrid.jsx (grid): each card
+// owns one useArticleLabels() instance and passes it to the menu so the inline
+// chips and the menu always stay in sync.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
+
 export function useArticleLabels(articleId) {
   const [allLabels, setAllLabels] = useState([]);
   const [assignedLabels, setAssignedLabels] = useState([]);
@@ -23,6 +46,7 @@ export function useArticleLabels(articleId) {
     [assignedLabels],
   );
 
+  // All labels created in Settings. Loaded lazily (when the menu opens).
   const loadAll = useCallback(async () => {
     setLoadingAll(true);
     setError(null);
@@ -37,6 +61,8 @@ export function useArticleLabels(articleId) {
     }
   }, []);
 
+  // The labels currently on THIS article. Cheap — list cards load it on mount
+  // so their chips render; grid cards load it when the menu opens.
   const loadAssigned = useCallback(async () => {
     if (!articleId) return;
     setLoadingAssigned(true);
@@ -51,6 +77,7 @@ export function useArticleLabels(articleId) {
     }
   }, [articleId]);
 
+  // Assign if not assigned, unassign if it is. Optimistic with rollback.
   const toggle = useCallback(
     async (label) => {
       if (!articleId || busyId) return;
@@ -67,6 +94,7 @@ export function useArticleLabels(articleId) {
         if (wasAssigned) await api.articles.unlinkLabel(articleId, id);
         else await api.articles.linkLabel(articleId, id);
       } catch (e) {
+        // Roll back the optimistic change.
         setAssignedLabels((prev) =>
           wasAssigned ? [...prev, label] : prev.filter((l) => l.id !== id),
         );
@@ -93,6 +121,9 @@ export function useArticleLabels(articleId) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Chips (inline display, used on the list card)
+// ---------------------------------------------------------------------------
 
 export function LabelChips({ labels, max = 0, style }) {
   if (!labels || labels.length === 0) return null;
@@ -148,10 +179,13 @@ const chipDotStyle = {
   background: "linear-gradient(135deg, #c792ea, #82aaff)",
 };
 
+// ---------------------------------------------------------------------------
+// Context menu
+// ---------------------------------------------------------------------------
 
 export function LabelContextMenu({
-  labels,
-  variant = "grid",
+  labels, // the return value of useArticleLabels()
+  variant = "grid", // "grid" -> root chooser first; "list" -> straight to picker
   x,
   y,
   onClose,
@@ -161,11 +195,14 @@ export function LabelContextMenu({
   const [pos, setPos] = useState({ left: x, top: y });
   const [search, setSearch] = useState("");
 
+  // Pull fresh data whenever the menu opens.
   useEffect(() => {
     labels.loadAll();
     labels.loadAssigned();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Keep the menu on-screen — flip/clamp against the viewport edges.
   useLayoutEffect(() => {
     const el = menuRef.current;
     if (!el) return;
@@ -180,6 +217,7 @@ export function LabelContextMenu({
     setPos({ left: Math.max(pad, left), top: Math.max(pad, top) });
   }, [x, y, view, labels.allLabels.length, labels.assignedLabels.length]);
 
+  // Dismiss on outside click, Escape, or scroll.
   useEffect(() => {
     const onDown = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) onClose();
@@ -187,7 +225,13 @@ export function LabelContextMenu({
     const onKey = (e) => {
       if (e.key === "Escape") onClose();
     };
-    const onScroll = () => onClose();
+    const onScroll = (e) => {
+      // Scrolling INSIDE the menu (e.g. the picker list) shouldn't close it.
+      // We only want to close on outer page scrolls, which would otherwise
+      // drift the fixed-position menu away from its anchor point.
+      if (menuRef.current && menuRef.current.contains(e.target)) return;
+      onClose();
+    };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     window.addEventListener("scroll", onScroll, true);
@@ -200,9 +244,7 @@ export function LabelContextMenu({
 
   const term = search.trim().toLowerCase();
   const filteredAll = term
-    ? labels.allLabels.filter((l) =>
-        (l.name || "").toLowerCase().includes(term),
-      )
+    ? labels.allLabels.filter((l) => (l.name || "").toLowerCase().includes(term))
     : labels.allLabels;
 
   const menu = (
@@ -210,6 +252,9 @@ export function LabelContextMenu({
       ref={menuRef}
       role="menu"
       onContextMenu={(e) => e.preventDefault()}
+      // The menu is portaled to <body>, but React events still bubble through
+      // the React tree to the card's onClick. Stop them so clicking inside the
+      // menu (e.g. the empty state) can't open the article's reading page.
       onMouseDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
       style={{
@@ -222,7 +267,8 @@ export function LabelContextMenu({
         border: "1px solid rgba(255,255,255,0.1)",
         borderRadius: "12px",
         padding: "6px",
-        boxShadow: "0 16px 48px rgba(0,0,0,0.55), 0 4px 12px rgba(0,0,0,0.35)",
+        boxShadow:
+          "0 16px 48px rgba(0,0,0,0.55), 0 4px 12px rgba(0,0,0,0.35)",
         fontFamily: "'DM Sans', sans-serif",
         color: "#e8e6e1",
         animation: "fadeIn 0.12s ease",
@@ -255,6 +301,10 @@ export function LabelContextMenu({
 
   return createPortal(menu, document.body);
 }
+
+// ---------------------------------------------------------------------------
+// Menu views
+// ---------------------------------------------------------------------------
 
 function RootView({ assignedCount, onAssign, onDisplay }) {
   return (
@@ -334,6 +384,7 @@ function DisplayView({ labels, onBack }) {
       {labels.loadingAssigned && labels.assignedLabels.length === 0 ? (
         <MenuNote text="Loading…" />
       ) : labels.assignedLabels.length === 0 ? (
+        // Special empty case for the grid "display" flow.
         <EmptyBlock
           title="No labels assigned"
           subtitle="Open “Assign labels” to add some."
@@ -356,6 +407,10 @@ function DisplayView({ labels, onBack }) {
     </>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Rows
+// ---------------------------------------------------------------------------
 
 function PickRow({ label, assigned, busy, onClick }) {
   const [hover, setHover] = useState(false);
@@ -495,6 +550,10 @@ function AssignedRow({ label, busy, onRemove }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Small shared menu primitives
+// ---------------------------------------------------------------------------
+
 function MenuTitle({ children }) {
   return (
     <div
@@ -631,6 +690,7 @@ function MenuError({ text }) {
 }
 
 function EmptyBlock({ title, subtitle }) {
+  // Compact, text-only. No icon, no button.
   return (
     <div style={{ padding: "10px 12px 12px", textAlign: "center" }}>
       <div
@@ -649,6 +709,10 @@ function EmptyBlock({ title, subtitle }) {
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Icons + shared style atoms
+// ---------------------------------------------------------------------------
 
 const rowDotStyle = {
   width: "9px",

@@ -786,7 +786,21 @@ function ConfigurationSection() {
       try {
         const cfg = await api.config.get();
         if (cancelled) return;
-        const sched = (cfg && cfg.scheduler) || { ...SCHEDULER_DEFAULTS };
+        
+        // MAPPING FIX: The backend currently sends a flat ConfigQuery object 
+        // with min/max fetch intervals instead of the fully nested config.
+        const sched = { ...SCHEDULER_DEFAULTS };
+        if (cfg) {
+          // Map flat structure (used by current API)
+          if (cfg.min_fetch_interval != null) sched.min_fetch_interval = cfg.min_fetch_interval;
+          if (cfg.max_fetch_interval != null) sched.max_fetch_interval = cfg.max_fetch_interval;
+          
+          // Map nested structure (if API gets updated to return full config struct later)
+          if (cfg.scheduler) {
+            Object.assign(sched, cfg.scheduler);
+          }
+        }
+        
         const form = schedulerToFormValues(sched);
         setConfig(cfg || {});
         setOriginal(form);
@@ -866,13 +880,19 @@ function ConfigurationSection() {
       nextScheduler[field.key] = coerceSchedulerValue(field, values[field.key]);
     }
 
-    // Merge into the full config so network/paths are preserved as-is and not
-    // reset to server defaults.
-    const merged = { ...config, scheduler: nextScheduler };
+    // MAPPING FIX: Merge into the full config so network/paths are preserved as-is.
+    // We also hoist min_fetch_interval & max_fetch_interval to the root level 
+    // since the Rust backend `update_config` parses a flat `ConfigQuery` struct.
+    const payload = { 
+      ...config, 
+      scheduler: nextScheduler,
+      min_fetch_interval: nextScheduler.min_fetch_interval,
+      max_fetch_interval: nextScheduler.max_fetch_interval,
+    };
 
     try {
-      await api.config.update(merged);
-      setConfig(merged);
+      await api.config.update(payload);
+      setConfig(payload);
       const form = schedulerToFormValues(nextScheduler);
       setOriginal(form);
       setValues(form);

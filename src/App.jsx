@@ -6,6 +6,7 @@ import ArticlePage from "./Pages/ArticlePage";
 import ForYou from "./Pages/ForYou";
 import Settings from "./Pages/Settings";
 import SummaryModal from "./components/SummaryModal";
+import TutorialPopup from "./components/TutorialPopup";
 
 // SLIDE-IN PANEL VERSION
 // When an article is selected from "aleym" or "foryou", the feed shrinks to a
@@ -265,6 +266,7 @@ export default function App() {
           articleId={summaryArticleId}
           onClose={() => setSummaryArticleId(null)}
         />
+        <TutorialPopup />
       </>
     </DataProvider>
   );

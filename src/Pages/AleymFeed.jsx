@@ -24,6 +24,9 @@ const HEAD_POLL_MS = 20_000;
 const HEAD_POLL_PAGE_SIZE = 50;
 const MANUAL_FETCH_TIMEOUT_MS = 15_000;
 
+const TOAST_TTL_MS = 7000;
+const MAX_TOASTS = 4;
+
 // ---------------------------------------------------------------------------
 // Cursor helper
 // ---------------------------------------------------------------------------
@@ -33,6 +36,16 @@ const cursorOf = (article) => article.first_fetched_at ?? 0;
 function sortArticles(list, order) {
   const sign = order === "asc" ? 1 : -1;
   return [...list].sort((a, b) => sign * (cursorOf(a) - cursorOf(b)));
+}
+
+// Pull the most useful human-readable string out of an AleymApiError (or any
+// error). The server's response body, when present, is usually the clearest;
+// otherwise fall back to the composed `.message`, then a generic default.
+function errorMessage(err, fallback) {
+  if (!err) return fallback;
+  const body = typeof err.body === "string" ? err.body.trim() : "";
+  if (body && body.length <= 200) return body;
+  return err.message || fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,11 +80,58 @@ export default function AleymFeed({
 
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(null);
   const [manualFetching, setManualFetching] = useState(false);
   const [error, setError] = useState(null);
   const [reachedEnd, setReachedEnd] = useState(false);
 
   const [pendingNewArticles, setPendingNewArticles] = useState([]);
+
+  // -------- Notifications (transient errors / warnings) --------
+  // The full-page error block only covers "can't load the feed at all". These
+  // toasts surface the transient failures that used to be console-only:
+  // background source-fetch failures (SSE), manual-fetch trigger errors,
+  // pagination errors, and the initial sources/categories load failing.
+  const [toasts, setToasts] = useState([]);
+  const toastIdRef = useRef(0);
+
+  const pushToast = useCallback((kind, message, ttl = TOAST_TTL_MS) => {
+    if (!message) return;
+    setToasts((prev) => {
+      const now = Date.now();
+      // Coalesce identical messages so a burst of failures doesn't spam the
+      // stack — bump a count and refresh the lifetime instead.
+      const existing = prev.find(
+        (t) => t.kind === kind && t.message === message,
+      );
+      if (existing) {
+        return prev.map((t) =>
+          t.id === existing.id
+            ? { ...t, count: t.count + 1, expiresAt: now + ttl }
+            : t,
+        );
+      }
+      const id = ++toastIdRef.current;
+      return [
+        ...prev,
+        { id, kind, message, count: 1, expiresAt: now + ttl },
+      ].slice(-MAX_TOASTS);
+    });
+  }, []);
+
+  const dismissToast = useCallback((id) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  // Single sweeper removes expired toasts (avoids one timer per toast).
+  useEffect(() => {
+    if (toasts.length === 0) return;
+    const t = setInterval(() => {
+      const now = Date.now();
+      setToasts((prev) => prev.filter((x) => x.expiresAt > now));
+    }, 500);
+    return () => clearInterval(t);
+  }, [toasts.length]);
 
   // -------- Filters --------
   const selectedSource =
@@ -99,6 +159,9 @@ export default function AleymFeed({
 
   const loadingMoreRef = useRef(false);
   const reachedEndRef = useRef(false);
+  // Mirror of loadMoreError so the infinite-scroll observer can bail without
+  // auto-retrying into the same failure — the user must hit "Retry".
+  const loadMoreErrorRef = useRef(null);
 
   // Track component mount status to avoid memory leaks on unmount
   useEffect(() => {
@@ -127,6 +190,10 @@ export default function AleymFeed({
   useEffect(() => {
     reachedEndRef.current = reachedEnd;
   }, [reachedEnd]);
+
+  useEffect(() => {
+    loadMoreErrorRef.current = loadMoreError;
+  }, [loadMoreError]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => {
@@ -227,13 +294,21 @@ export default function AleymFeed({
           setSourceToCategoryMap(sourceToCatMap);
         }
       } catch (err) {
+        // Used to be console-only. If this fails the source/category dropdowns
+        // are empty and every card shows "Unknown" — worth telling the user.
         console.error("Failed to load sources/categories:", err);
+        if (alive) {
+          pushToast(
+            "warning",
+            errorMessage(err, "Couldn't load sources or categories."),
+          );
+        }
       }
     })();
     return () => {
       alive = false;
     };
-  }, []);
+  }, [pushToast]);
 
   // -------- Filter args --------
   const buildFilterArgs = useCallback(() => {
@@ -247,7 +322,7 @@ export default function AleymFeed({
     if (searchQuery) q.query = searchQuery;
     if (readFilter !== "") q.is_read = readFilter === "true";
     return q;
-  }, [selectedSourceIds, selectedCategoryIds, searchQuery,readFilter]);
+  }, [selectedSourceIds, selectedCategoryIds, searchQuery, readFilter]);
 
   // -------- Reset & load first page --------
   const loadFirstPage = useCallback(async () => {
@@ -257,6 +332,10 @@ export default function AleymFeed({
     setError(null);
     setReachedEnd(false);
     setPendingNewArticles([]);
+    // Fresh load — clear any stale pagination error (state + ref so the
+    // observer isn't blocked once the new list mounts).
+    setLoadMoreError(null);
+    loadMoreErrorRef.current = null;
 
     try {
       let page = await api.articles.list({
@@ -304,7 +383,7 @@ export default function AleymFeed({
       setReachedEnd(page.length < PAGE_SIZE);
     } catch (err) {
       if (reqId !== pageLoadIdRef.current || !isMountedRef.current) return;
-      setError(err.message || "Failed to load articles");
+      setError(errorMessage(err, "Failed to load articles"));
       setArticles([]);
       setReachedEnd(true);
     } finally {
@@ -320,7 +399,12 @@ export default function AleymFeed({
 
   // -------- Infinite scroll: load next page --------
   const loadMore = useCallback(async () => {
-    if (loadingInitial || loadingMoreRef.current || reachedEndRef.current)
+    if (
+      loadingInitial ||
+      loadingMoreRef.current ||
+      reachedEndRef.current ||
+      loadMoreErrorRef.current // a previous page failed; wait for explicit retry
+    )
       return;
 
     const currentArticles = articlesRef.current;
@@ -395,11 +479,24 @@ export default function AleymFeed({
         setReachedEnd(true);
       }
     } catch (err) {
+      // Used to be console-only — the user just saw the spinner vanish.
+      // Surface it inline at the footer with a Retry. Set the ref directly so
+      // the observer's guard sees it immediately and doesn't auto-retry.
       console.error("loadMore failed:", err);
+      if (reqId === pageLoadIdRef.current) {
+        loadMoreErrorRef.current = true;
+        setLoadMoreError(errorMessage(err, "Couldn't load more articles."));
+      }
     } finally {
       if (reqId === pageLoadIdRef.current) setLoadingMore(false);
     }
   }, [buildFilterArgs, filterArticles, loadingInitial, sortOrder]);
+
+  const retryLoadMore = useCallback(() => {
+    loadMoreErrorRef.current = null;
+    setLoadMoreError(null);
+    loadMore();
+  }, [loadMore]);
 
   useEffect(() => {
     const el = sentinelRef.current;
@@ -484,6 +581,8 @@ export default function AleymFeed({
         return [...dedup, ...prev];
       });
     } catch (err) {
+      // Background poll — intentionally quiet. Surfacing this as a toast every
+      // 20s would be noise; a real outage shows up via the feed/SSE instead.
       console.debug("pollHead failed:", err);
     }
   }, []);
@@ -504,11 +603,20 @@ export default function AleymFeed({
       if (evt.type === "Update") {
         pollHead();
       } else if (evt.type === "Failure") {
+        // A source's informant failed to fetch (scheduled or manual). This
+        // is pushed from the server and was previously console-only.
         console.warn("Aleym source fetch failed:", evt.raw);
+        const detail = (evt.raw && (evt.raw.error || evt.raw.message)) || "";
+        pushToast(
+          "warning",
+          detail
+            ? `A source failed to fetch: ${detail}`
+            : "A source failed to fetch. It will be retried automatically.",
+        );
       }
     });
     return unsubscribe;
-  }, [pollHead]);
+  }, [pollHead, pushToast]);
 
   // When the tab becomes visible after being hidden, browsers throttle
   // setInterval to ~once-per-minute, so we may have missed several poll
@@ -589,11 +697,18 @@ export default function AleymFeed({
     setManualFetching(true);
     setError(null);
 
-    const updatePromise = new Promise((resolve) => {
+    // Resolve when the backend finishes (Update), fails (Failure), or we hit
+    // the timeout. The Failure message itself is shown by the global SSE
+    // subscription above, so here we only use it to stop spinning early
+    // instead of waiting out the full timeout.
+    const settledPromise = new Promise((resolve) => {
       const unsubscribe = api.events.subscribe((evt) => {
         if (evt.type === "Update") {
           unsubscribe();
           resolve("update");
+        } else if (evt.type === "Failure") {
+          unsubscribe();
+          resolve("failure");
         }
       });
       setTimeout(() => {
@@ -604,21 +719,25 @@ export default function AleymFeed({
 
     try {
       await api.sources.manualFetch(selectedSource);
-      await updatePromise;
+      await settledPromise;
       if (isMountedRef.current) {
         await loadFirstPage();
       }
     } catch (err) {
+      // Only reached if the trigger call itself fails (server unreachable,
+      // 4xx/5xx on /fetch). The old setError(...) here never rendered while
+      // articles were on screen, so the failure was effectively invisible —
+      // a toast always shows.
       console.error("Manual fetch failed:", err);
       if (isMountedRef.current) {
-        setError(err.message || "Manual fetch failed");
+        pushToast("error", errorMessage(err, "Manual fetch failed."));
       }
     } finally {
       if (isMountedRef.current) {
         setManualFetching(false);
       }
     }
-  }, [selectedSource, manualFetching, loadFirstPage]);
+  }, [selectedSource, manualFetching, loadFirstPage, pushToast]);
 
   // -------- Layout --------
   const marginLeft = compactMode
@@ -675,6 +794,10 @@ export default function AleymFeed({
           0%, 100% { box-shadow: 0 8px 24px rgba(199,146,234,0.25), 0 0 0 0 rgba(199,146,234,0.35); }
           50%      { box-shadow: 0 8px 24px rgba(199,146,234,0.25), 0 0 0 10px rgba(199,146,234,0); }
         }
+        @keyframes aleymToastIn {
+          0%   { transform: translateX(16px); opacity: 0; }
+          100% { transform: translateX(0);    opacity: 1; }
+        }
 
         /* Aleym select dropdown styling */
         select.aleym-select {
@@ -703,6 +826,8 @@ export default function AleymFeed({
           color: #5a5a6a;
         }
       `}</style>
+
+      <Toasts toasts={toasts} onDismiss={dismissToast} />
 
       <div
         style={{
@@ -1067,11 +1192,14 @@ export default function AleymFeed({
                   color: "#5a5a6a",
                   fontSize: "13px",
                   maxWidth: "400px",
-                  margin: "0 auto",
+                  margin: "0 auto 20px",
                 }}
               >
                 {error}. Make sure the Aleym API server is running.
               </p>
+              <button onClick={loadFirstPage} style={retryButtonStyle}>
+                Try again
+              </button>
             </div>
           )}
 
@@ -1144,14 +1272,37 @@ export default function AleymFeed({
                     <span>Loading more…</span>
                   </>
                 )}
-                {!loadingMore && reachedEnd && (
+                {!loadingMore && loadMoreError && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: "10px",
+                    }}
+                  >
+                    <span
+                      style={{
+                        color: "#ff8b8b",
+                        fontSize: "13px",
+                        maxWidth: "400px",
+                      }}
+                    >
+                      {loadMoreError}
+                    </span>
+                    <button onClick={retryLoadMore} style={retryButtonStyle}>
+                      Retry
+                    </button>
+                  </div>
+                )}
+                {!loadingMore && !loadMoreError && reachedEnd && (
                   <span>
                     {sortedArticles.length}{" "}
                     {sortedArticles.length === 1 ? "article" : "articles"} · End
                     of Feed
                   </span>
                 )}
-                {!loadingMore && !reachedEnd && (
+                {!loadingMore && !loadMoreError && !reachedEnd && (
                   <span>
                     {sortedArticles.length}{" "}
                     {sortedArticles.length === 1 ? "article" : "articles"}{" "}
@@ -1164,6 +1315,173 @@ export default function AleymFeed({
         </div>
       </div>
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Toasts
+// ---------------------------------------------------------------------------
+
+const TOAST_KINDS = {
+  error: {
+    color: "#ff6464",
+    bg: "rgba(255,100,100,0.12)",
+    border: "rgba(255,100,100,0.30)",
+  },
+  warning: {
+    color: "#e6b35c",
+    bg: "rgba(230,179,92,0.12)",
+    border: "rgba(230,179,92,0.30)",
+  },
+  info: {
+    color: "#82aaff",
+    bg: "rgba(130,170,255,0.12)",
+    border: "rgba(130,170,255,0.30)",
+  },
+};
+
+function ToastIcon({ kind, color }) {
+  if (kind === "error") {
+    return (
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <line x1="15" y1="9" x2="9" y2="15" />
+        <line x1="9" y1="9" x2="15" y2="15" />
+      </svg>
+    );
+  }
+  if (kind === "warning") {
+    return (
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke={color}
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+        <line x1="12" y1="9" x2="12" y2="13" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
+    );
+  }
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="16" x2="12" y2="12" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
+  );
+}
+
+function Toasts({ toasts, onDismiss }) {
+  if (!toasts || toasts.length === 0) return null;
+  return (
+    <div
+      style={{
+        position: "fixed",
+        top: "20px",
+        right: "20px",
+        zIndex: 2000,
+        display: "flex",
+        flexDirection: "column",
+        gap: "10px",
+        maxWidth: "380px",
+        pointerEvents: "none",
+      }}
+    >
+      {toasts.map((t) => (
+        <Toast key={t.id} toast={t} onDismiss={() => onDismiss(t.id)} />
+      ))}
+    </div>
+  );
+}
+
+function Toast({ toast, onDismiss }) {
+  const k = TOAST_KINDS[toast.kind] || TOAST_KINDS.info;
+  return (
+    <div
+      role="alert"
+      style={{
+        pointerEvents: "auto",
+        display: "flex",
+        alignItems: "flex-start",
+        gap: "10px",
+        padding: "12px 14px",
+        borderRadius: "12px",
+        background: `linear-gradient(0deg, ${k.bg}, ${k.bg}) #16161c`,
+        border: `1px solid ${k.border}`,
+        boxShadow: "0 10px 30px rgba(0,0,0,0.4)",
+        animation: "aleymToastIn 0.25s cubic-bezier(0.34,1.56,0.64,1) both",
+        fontFamily: "'DM Sans', sans-serif",
+      }}
+    >
+      <span style={{ flexShrink: 0, marginTop: "1px" }}>
+        <ToastIcon kind={toast.kind} color={k.color} />
+      </span>
+      <p
+        style={{
+          flex: 1,
+          minWidth: 0,
+          margin: 0,
+          fontSize: "13px",
+          lineHeight: 1.45,
+          color: "#e8e6e1",
+          wordBreak: "break-word",
+        }}
+      >
+        {toast.message}
+        {toast.count > 1 ? ` (×${toast.count})` : ""}
+      </p>
+      <button
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        style={{
+          flexShrink: 0,
+          background: "none",
+          border: "none",
+          color: "#7a7a8a",
+          cursor: "pointer",
+          padding: "2px",
+          display: "flex",
+          alignItems: "center",
+        }}
+      >
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+        >
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </div>
   );
 }
 
@@ -1256,7 +1574,7 @@ function FeedArticleCard({
             news: article.id,
             happened_at: Math.floor(startedAtRef.current / 1000),
             duration: activeMs,
-          })
+          }),
         );
       }
     };
@@ -1326,6 +1644,19 @@ const refreshButtonStyle = {
   display: "flex",
   alignItems: "center",
   gap: "6px",
+};
+
+const retryButtonStyle = {
+  padding: "8px 18px",
+  fontSize: "13px",
+  fontWeight: 600,
+  fontFamily: "'DM Sans', sans-serif",
+  borderRadius: "10px",
+  border: "1px solid rgba(255,100,100,0.30)",
+  background: "rgba(255,100,100,0.10)",
+  color: "#ff8b8b",
+  cursor: "pointer",
+  transition: "all 0.2s ease",
 };
 
 const spinnerStyle = {

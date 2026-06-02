@@ -5,6 +5,10 @@ import AboutModal from "./AboutModal";
 const SIDEBAR_WIDTH_OPEN = 260;
 const SIDEBAR_WIDTH_CLOSED = 72;
 
+// Shared persistence key — any page that renders <Sidebar/> keeps this in
+// sync, so the collapsed/expanded state survives navigation between pages.
+const SIDEBAR_STATE_KEY = "aleym.sidebarOpen";
+
 const navItems = [
   {
     key: "aleym",
@@ -38,6 +42,13 @@ const navItems = [
   },
 ];
 
+const settingsIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="3" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+
 const EMPTY_ARRAY = [];
 
 export default function Sidebar({
@@ -59,6 +70,18 @@ export default function Sidebar({
   const PADDING_X = 16;
   const ICON_AREA = 40;
   const transition = disableTransition ? "none" : "width 0.3s cubic-bezier(0.4, 0, 0.2, 1)";
+
+  // Persist the open/closed state. Because every page renders this same
+  // component, the latest value is always captured here, and pages can read
+  // it back on mount (see readSidebarOpen in Settings) so navigation no
+  // longer forces the sidebar open.
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_STATE_KEY, JSON.stringify(!!open));
+    } catch {
+      // storage disabled / full — non-fatal
+    }
+  }, [open]);
 
   useEffect(() => {
     const categorySet = new Set(Array.isArray(selectedCategoryIds) ? selectedCategoryIds : selectedCategoryIds ? [selectedCategoryIds] : []);
@@ -116,6 +139,8 @@ export default function Sidebar({
       [categoryId]: !prev[categoryId],
     }));
   };
+
+  const settingsHovered = hovered === "settings";
 
   return (
     <div
@@ -579,6 +604,7 @@ export default function Sidebar({
     </button>
     </div>
 
+      {/* ---- Footer: Settings (isolated below) + Collapse ---- */}
   <div
     style={{
       padding: `12px ${PADDING_X}px`,
@@ -586,10 +612,88 @@ export default function Sidebar({
       display: "flex",
       flexDirection: "column",
       gap: "4px",
+          display: "flex",
+          flexDirection: "column",
+          gap: "4px",
     }}
   >
 
   {/* Collapse button */}
+        {/* Settings — sits above the collapse button, visually separated
+            from the main nav by the footer's borderTop. */}
+        <div style={{ position: "relative" }}>
+          <button
+            onClick={() => navigateTo("settings")}
+            onMouseEnter={() => setHovered("settings")}
+            onMouseLeave={() => setHovered(null)}
+            style={{
+              width: "100%",
+              height: "44px",
+              display: "flex",
+              alignItems: "center",
+              gap: "12px",
+              padding: "0 10px",
+              background: settingsHovered ? "rgba(199,146,234,0.08)" : "transparent",
+              border: "1px solid",
+              borderColor: settingsHovered ? "rgba(199,146,234,0.15)" : "transparent",
+              borderRadius: "10px",
+              color: settingsHovered ? "#c792ea" : "#b0b0c0",
+              fontSize: "14px",
+              fontWeight: 500,
+              cursor: "pointer",
+              transition: "background 0.15s ease, border-color 0.15s ease, color 0.15s ease",
+              textAlign: "left",
+              fontFamily: "inherit",
+              overflow: "hidden",
+            }}
+          >
+            <span
+              style={{
+                width: "20px",
+                height: "20px",
+                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {settingsIcon}
+            </span>
+            <span
+              style={{
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                opacity: open ? 1 : 0,
+                transition: "opacity 0.2s ease",
+                minWidth: 0,
+              }}
+            >
+              Settings
+            </span>
+          </button>
+
+          {!open && settingsHovered && (
+            <div
+              style={{
+                position: "fixed",
+                left: `${SIDEBAR_WIDTH_CLOSED + 8}px`,
+                background: "#1e1e26",
+                border: "1px solid rgba(255,255,255,0.1)",
+                borderRadius: "8px",
+                padding: "7px 14px",
+                fontSize: "13px",
+                color: "#e8e6e1",
+                whiteSpace: "nowrap",
+                zIndex: 300,
+                boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+                pointerEvents: "none",
+              }}
+            >
+              Settings
+            </div>
+          )}
+        </div>
+
   <button
     onClick={() => setOpen(!open)}
     onMouseEnter={() => setHovered("toggle")}
@@ -650,4 +754,4 @@ export default function Sidebar({
   );
 }
 
-export { SIDEBAR_WIDTH_OPEN, SIDEBAR_WIDTH_CLOSED };
+export { SIDEBAR_WIDTH_OPEN, SIDEBAR_WIDTH_CLOSED, SIDEBAR_STATE_KEY };

@@ -1,5 +1,3 @@
-//NO DELETE CATEGORY
-
 // aleymapi.js
 // Service module for the Aleym API.
 // Covers every REST endpoint exposed by the Rust backend (axum) and the SSE
@@ -39,15 +37,26 @@ const EVENTS_URL = `${BASE_URL}/events`;
 //     title:            string,
 //     uri:              string | null,
 //     summary:          string | null,
+//     has_content:      boolean,        // true if the full article has content
 //     first_fetched_at: number  (unix seconds),
 //     last_fetched_at:  number  (unix seconds),
 //     published_at:     number | null (unix seconds),
 //     is_read:          boolean,
 //   }
 //
-// Article (returned by /articles/{id}) — same as SimpleArticle plus:
+// Article (returned by /articles/{id}) — same as SimpleArticle but with the
+// full `content` instead of `has_content`:
 //   {
+//     id:               string (UUID),
+//     source:           string (UUID),
+//     title:            string,
+//     uri:              string | null,
+//     summary:          string | null,
 //     content:          string | null,
+//     first_fetched_at: number  (unix seconds),
+//     last_fetched_at:  number  (unix seconds),
+//     published_at:     number | null (unix seconds),
+//     is_read:          boolean,
 //   }
 //
 // Source (returned by /sources, /sources/{id}, /categories/{id}/sources):
@@ -62,6 +71,7 @@ const EVENTS_URL = `${BASE_URL}/events`;
 //     logo_uri:          string | null,
 //     custom_id:         string | null,
 //     is_enabled:        boolean,
+//     url:               string | null,  // derived feed/channel url, if known
 //   }
 //
 // Category (returned by /categories, /sources/{id}/categories):
@@ -70,6 +80,36 @@ const EVENTS_URL = `${BASE_URL}/events`;
 //     name:        string,
 //     description: string | null,
 //   }
+//
+// Label (returned by /labels, /articles/{id}/labels):
+//   {
+//     id:          string (UUID),
+//     name:        string,
+//     description: string | null,
+//   }
+//
+// Config (returned by /config):
+//   {
+//     network: {
+//       port:           number,
+//       host:           string,
+//       tor_proxy_port: number,
+//     },
+//     paths: {
+//       db_file:        string,
+//     },
+//     scheduler: {
+//       min_fetch_interval:                              number,
+//       max_fetch_interval:                              number,
+//       short_term_cutoff_time:                          number,
+//       long_term_cutoff_time:                           number,
+//       fetch_freshness_bias:                            number,
+//       signals_count_limit:                             number,
+//       publication_window_new_items_count_threshold:    number,
+//     },
+//   }
+//   NOTE: shape mirrors the Rust `Config` struct. These settings require a
+//   server restart to take effect.
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -92,13 +132,24 @@ export class AleymApiError extends Error {
 
 /**
  * Build a URL with a query string, dropping null/undefined params.
+ *
+ * Array values are appended as repeated params (e.g. `labels=a&labels=b`),
+ * which is what the axum_extra `Query` extractor expects for `Vec<T>` fields
+ * like `source_id`, `category_id`, and `labels`.
  */
 function buildUrl(path, params) {
   const url = new URL(`${API_PREFIX}${path}`, window.location.origin);
   if (params && typeof params === "object") {
     for (const [k, v] of Object.entries(params)) {
       if (v === undefined || v === null) continue;
-      url.searchParams.append(k, String(v));
+      if (Array.isArray(v)) {
+        for (const item of v) {
+          if (item === undefined || item === null) continue;
+          url.searchParams.append(k, String(item));
+        }
+      } else {
+        url.searchParams.append(k, String(v));
+      }
     }
   }
   // If BASE_URL is absolute it takes precedence; otherwise return relative path.
@@ -171,18 +222,19 @@ export const articles = {
    * GET /api/articles
    * Returns a list of SimpleArticle.
    *
-   * Each item includes: id, source, title, uri, summary, first_fetched_at,
-   * last_fetched_at, published_at, is_read.
+   * Each item includes: id, source, title, uri, summary, has_content,
+   * first_fetched_at, last_fetched_at, published_at, is_read.
    *
    * @param {Object} [params]
-   * @param {number} [params.limit]          default 50 server-side
-   * @param {number} [params.after]          unix timestamp (seconds) — only articles fetched after
-   * @param {number} [params.before]         unix timestamp (seconds) — only articles fetched before
-   * @param {"asc"|"desc"} [params.sort_order]   default "desc"
-   * @param {string} [params.source_id]      UUID; takes priority over category_id
-   * @param {string} [params.category_id]    UUID
-   * @param {string} [params.query]          full-text search query
-   * @param {boolean}  [params.is_read]      filter by read/unread status
+   * @param {number} [params.limit]                 default 50 server-side
+   * @param {number} [params.after]                 unix timestamp (seconds) — only articles fetched after
+   * @param {number} [params.before]                unix timestamp (seconds) — only articles fetched before
+   * @param {"asc"|"desc"} [params.sort_order]      default "desc"
+   * @param {string|string[]} [params.source_id]    UUID(s); takes priority over category_id
+   * @param {string|string[]} [params.category_id]  UUID(s)
+   * @param {string} [params.query]                 full-text search query
+   * @param {string|string[]} [params.labels]       UUID(s) — only articles tagged with these label(s)
+   * @param {boolean}  [params.is_read]             filter by read/unread status
    * @param {AbortSignal} [signal]
    */
   list(params = {}, signal) {
@@ -207,7 +259,7 @@ export const articles = {
 
   /**
    * GET /api/articles/{id}
-   * Returns a full Article (includes `content` in addition to all
+   * Returns a full Article (includes `content` in addition to the other
    * SimpleArticle fields).
    */
   getById(id, signal) {
@@ -246,6 +298,53 @@ export const articles = {
   /** Mark an article as unread. Shorthand for `setRead(id, false)`. */
   markUnread(id, signal) {
     return articles.setRead(id, false, signal);
+  },
+
+  /**
+   * GET /api/articles/{id}/labels
+   * Returns the list of Label objects assigned to an article.
+   *
+   * @param {string} id           UUID of the article
+   * @param {AbortSignal} [signal]
+   */
+  labels(id, signal) {
+    if (!id) throw new Error("articles.labels: id is required");
+    return get(`/articles/${encodeURIComponent(id)}/labels`, undefined, signal);
+  },
+
+  /**
+   * POST /api/articles/{id}/labels/{label_id}
+   * Assigns a label to an article.
+   *
+   * @param {string} id           UUID of the article
+   * @param {string} labelId      UUID of the label
+   * @param {AbortSignal} [signal]
+   */
+  linkLabel(id, labelId, signal) {
+    if (!id || !labelId)
+      throw new Error("articles.linkLabel: id and labelId are required");
+    return post(
+      `/articles/${encodeURIComponent(id)}/labels/${encodeURIComponent(labelId)}`,
+      undefined,
+      signal,
+    );
+  },
+
+  /**
+   * DELETE /api/articles/{id}/labels/{label_id}
+   * Removes a label assignment from an article.
+   *
+   * @param {string} id           UUID of the article
+   * @param {string} labelId      UUID of the label
+   * @param {AbortSignal} [signal]
+   */
+  unlinkLabel(id, labelId, signal) {
+    if (!id || !labelId)
+      throw new Error("articles.unlinkLabel: id and labelId are required");
+    return del(
+      `/articles/${encodeURIComponent(id)}/labels/${encodeURIComponent(labelId)}`,
+      signal,
+    );
   },
 };
 
@@ -318,6 +417,52 @@ export const categories = {
 };
 
 // ---------------------------------------------------------------------------
+// Labels
+// ---------------------------------------------------------------------------
+
+export const labels = {
+  /** GET /api/labels — returns a list of Label. */
+  list(signal) {
+    return get("/labels", undefined, signal);
+  },
+
+  /**
+   * POST /api/labels
+   * @param {{ name: string, description?: string|null }} payload
+   * @returns {Promise<string>} the new label UUID
+   */
+  create(payload, signal) {
+    if (!payload || !payload.name) throw new Error("labels.create: name is required");
+    return post("/labels", payload, signal);
+  },
+
+  /**
+   * PUT /api/labels/{id}
+   *
+   * Both fields are optional and use NotSet-when-omitted semantics:
+   *   - omit `name`        -> name unchanged
+   *   - omit `description` -> description unchanged
+   *
+   * Unlike categories, the label endpoint cannot clear a description back to
+   * null — only set it to a new value or leave it untouched.
+   *
+   * @param {string} id
+   * @param {{ name?: string, description?: string }} payload
+   */
+  update(id, payload, signal) {
+    if (!id) throw new Error("labels.update: id is required");
+    if (!payload) throw new Error("labels.update: payload required");
+    return put(`/labels/${encodeURIComponent(id)}`, payload, signal);
+  },
+
+  /** DELETE /api/labels/{id} */
+  remove(id, signal) {
+    if (!id) throw new Error("labels.remove: id is required");
+    return del(`/labels/${encodeURIComponent(id)}`, signal);
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Sources
 // ---------------------------------------------------------------------------
 
@@ -335,7 +480,7 @@ export const sources = {
    * GET /api/sources
    * Returns a list of Source. Each item includes: id, parent_directory,
    * informant, networktype, name, description, icon_uri, logo_uri,
-   * custom_id, is_enabled.
+   * custom_id, is_enabled, url.
    */
   list(signal) {
     return get("/sources", undefined, signal);
@@ -418,6 +563,31 @@ export const sources = {
   manualFetch(id, signal) {
     if (!id) throw new Error("sources.manualFetch: id is required");
     return get(`/sources/${encodeURIComponent(id)}/fetch`, undefined, signal);
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+//
+// These settings live in the server's `server.toml` and require a restart to
+// take effect. The payload shape mirrors the Rust `Config` struct (network /
+// paths / scheduler). Send only the fields you want present; the server uses
+// serde defaults for anything omitted.
+
+export const config = {
+  /** GET /api/config — returns the current Config object. */
+  get(signal) {
+    return get("/config", undefined, signal);
+  },
+
+  /**
+   * PUT /api/config
+   * @param {Object} payload  — a (partial) Config object: { network, paths, scheduler }
+   */
+  update(payload, signal) {
+    if (!payload) throw new Error("config.update: payload required");
+    return put("/config", payload, signal);
   },
 };
 
@@ -644,7 +814,9 @@ const api = {
   articles,
   recommendations,
   categories,
+  labels,
   sources,
+  config,
   feedback,
   events,
 };

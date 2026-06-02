@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import api from "../services/aleymApi";
-import SummarizeButton from "./SummarizeButton";
+import { useArticleLabels, LabelContextMenu } from "../components/ArticleLabels";
 
-// NO ANIMATION (NO SLIDE)
 
 /**
  * Strip HTML tags and decode entities from a string,
@@ -19,25 +18,6 @@ function stripHtml(html) {
 
 /**
  * NewsCardGrid — displays a single news article in a square card layout.
- * Props:
- *   - id: string (UUID) — required for feedback / read-state actions
- *   - title, publishedAt, url, source, description
- *   - content: raw content from NewsAPI (may be truncated)
- *   - author: article author
- *   - urlToImage: hero image URL
- *   - isRead: boolean — current read state from the API
- *   - onReadChange: (newIsRead: boolean) => void — parent callback when read flag toggles
- *   - onSummarize: (articleId: string) => void — callback to open AI summary view
- *   - index: number (for staggered animation)
- *
- * VOTING BEHAVIOR:
- *   - Click upvote/downvote once to vote
- *   - Click the same button again to UNDO (clear the vote)
- *   - Click the opposite button to switch votes
- *
- * LAYOUT:
- *   - AI Summarize and Redirect buttons remain visible outside the kebab menu
- *   - Upvote, Downvote, and Read/Unread are grouped inside the "⋮" dropdown menu
  */
 export default function NewsCardGrid({
   id,
@@ -52,6 +32,7 @@ export default function NewsCardGrid({
   isRead = false,
   onReadChange,
   onSummarize,
+  navigateTo, // optional: lets the label menu jump to Settings
   index = 0,
 }) {
   const [hovered, setHovered] = useState(false);
@@ -60,6 +41,16 @@ export default function NewsCardGrid({
   // ---- Kebab menu state ----
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
+
+  const labels = useArticleLabels(id);
+  const [labelMenu, setLabelMenu] = useState(null); // { x, y } | null
+
+  const handleContextMenu = (e) => {
+    if (!id) return;
+    e.preventDefault();
+    setMenuOpen(false); // close the kebab menu if it was open
+    setLabelMenu({ x: e.clientX, y: e.clientY });
+  };
 
   // Close menu on outside click or Escape
   useEffect(() => {
@@ -83,7 +74,6 @@ export default function NewsCardGrid({
   }, [menuOpen]);
 
   // ---- Vote state (persisted via localStorage) ----
-  // null = no vote, true = upvoted, false = downvoted
   const [vote, setVote] = useState(() => {
     if (!id) return null;
     try {
@@ -96,31 +86,23 @@ export default function NewsCardGrid({
     }
   });
 
-  // Track voting in progress to prevent double-clicks
   const [voteBusy, setVoteBusy] = useState(false);
 
-  // Listen for vote changes from other components (e.g. ArticlePage)
   useEffect(() => {
     if (!id) return;
-
     const handleVoteChange = (e) => {
-      // Only update if this event is for THIS article
       if (e.detail?.articleId !== id) return;
-
       const newVote = e.detail.vote;
-      // Convert string format ("up"/"down"/null) to boolean format
       if (newVote === "up") setVote(true);
       else if (newVote === "down") setVote(false);
       else setVote(null);
     };
-
     window.addEventListener("aleym:vote-changed", handleVoteChange);
     return () => {
       window.removeEventListener("aleym:vote-changed", handleVoteChange);
     };
   }, [id]);
 
-  // ---- Read state (mirrors API for optimistic toggling) ----
   const [readState, setReadState] = useState(isRead);
   const [readBusy, setReadBusy] = useState(false);
 
@@ -135,28 +117,15 @@ export default function NewsCardGrid({
     minute: "2-digit",
   });
 
-  // ---- Action handlers ----
-
-  /**
-   * Enhanced vote handler with toggle/undo logic
-   * - First click: sets the vote (up or down)
-   * - Second click on same button: clears the vote (undo)
-   * - Click opposite button: switches the vote
-   */
   const sendVote = (isUpVote) => {
     if (!id || voteBusy) return;
-
-    // Capture previous vote BEFORE updating, for error recovery
     const previousVote = vote;
-
-    // Determine new vote state: if clicking same button, toggle off (undo)
     const isUndo = previousVote === isUpVote;
     const newVote = isUndo ? null : isUpVote;
 
     setVoteBusy(true);
-    setVote(newVote); // Optimistic UI update
+    setVote(newVote);
 
-    // Persist to localStorage immediately
     try {
       if (newVote === null) {
         localStorage.removeItem(`aleym:vote:${id}`);
@@ -165,8 +134,6 @@ export default function NewsCardGrid({
       }
     } catch {}
 
-    // Notify other components (article page) about the vote change
-    // Convert boolean → string format for consistency
     const voteString = newVote === null ? null : newVote ? "up" : "down";
     window.dispatchEvent(
       new CustomEvent("aleym:vote-changed", {
@@ -174,21 +141,14 @@ export default function NewsCardGrid({
       }),
     );
 
-    // Choose API call based on whether this is an undo or a vote
-    // If your API has a dedicated "remove vote" endpoint, use it here.
-    // Otherwise, we skip the API call for undo to avoid sending invalid data.
     let apiPromise;
-
     if (isUndo) {
-      // Try to call a dedicated removeVote endpoint if it exists,
-      // otherwise just resolve locally (UI undo only)
       if (api.feedback && typeof api.feedback.removeVote === "function") {
         apiPromise = api.feedback.removeVote({
           news: id,
           done_at: Math.floor(Date.now() / 1000),
         });
       } else {
-        // No backend support for undo — UI-only undo
         apiPromise = Promise.resolve();
       }
     } else {
@@ -201,10 +161,7 @@ export default function NewsCardGrid({
 
     apiPromise
       .catch((err) => {
-        console.warn("[NewsCardGrid] vote failed:", err);
-        // Revert UI to the captured previous vote
         setVote(previousVote);
-        // Also revert localStorage
         try {
           if (previousVote === null) {
             localStorage.removeItem(`aleym:vote:${id}`);
@@ -215,15 +172,6 @@ export default function NewsCardGrid({
             );
           }
         } catch {}
-
-        // Notify others about the revert
-        const revertVoteString =
-          previousVote === null ? null : previousVote ? "up" : "down";
-        window.dispatchEvent(
-          new CustomEvent("aleym:vote-changed", {
-            detail: { articleId: id, vote: revertVoteString },
-          }),
-        );
       })
       .finally(() => setVoteBusy(false));
   };
@@ -238,7 +186,6 @@ export default function NewsCardGrid({
         if (typeof onReadChange === "function") onReadChange(next);
       })
       .catch((err) => {
-        console.warn("[NewsCardGrid] setRead failed:", err);
         setReadState(!next);
       })
       .finally(() => setReadBusy(false));
@@ -253,7 +200,6 @@ export default function NewsCardGrid({
     writeReadState(true);
   };
 
-  // Shared style helpers
   const iconBtnStyle = (isHover, isActive, activeGradient) => ({
     width: "32px",
     height: "32px",
@@ -298,7 +244,6 @@ export default function NewsCardGrid({
   const strokeFor = (isHover, isActive) =>
     isActive ? "#0e0e12" : isHover ? "#e8e6e1" : "#6a6a7a";
 
-  // Style for menu items inside the kebab dropdown
   const menuItemStyle = (isHover, isActive, activeColor) => ({
     display: "flex",
     alignItems: "center",
@@ -325,6 +270,7 @@ export default function NewsCardGrid({
         setHoveredBtn(null);
       }}
       onClick={handleCardClick}
+      onContextMenu={handleContextMenu}
       style={{
         display: "block",
         textDecoration: "none",
@@ -360,9 +306,7 @@ export default function NewsCardGrid({
           height: "100%",
         }}
       >
-        {/* Top section */}
         <div>
-          {/* Source badge + button row */}
           <div
             style={{
               display: "flex",
@@ -395,11 +339,14 @@ export default function NewsCardGrid({
               {source || "News"}
             </div>
 
-            {/* Button group */}
-            <div style={{ display: "flex", gap: "6px", flexShrink: 0, marginLeft: "8px"}}>
-
-
-              {/* ---- Kebab menu (groups upvote / downvote / read) ---- */}
+            <div
+              style={{
+                display: "flex",
+                gap: "6px",
+                flexShrink: 0,
+                marginLeft: "8px",
+              }}
+            >
               <div
                 ref={menuRef}
                 style={{ position: "relative" }}
@@ -408,7 +355,7 @@ export default function NewsCardGrid({
               >
                 <button
                   type="button"
-                  aria-label="More actions"
+                  aria-label="Action"
                   aria-haspopup="menu"
                   aria-expanded={menuOpen}
                   onClick={(e) => {
@@ -440,12 +387,10 @@ export default function NewsCardGrid({
                   </svg>
                 </button>
 
-                {/* Tooltip (hidden when menu is open) */}
                 {hoveredBtn === "more" && !menuOpen && (
-                  <div style={tooltipStyle}>More actions</div>
+                  <div style={tooltipStyle}>Actions</div>
                 )}
 
-                {/* Dropdown menu */}
                 {menuOpen && (
                   <div
                     role="menu"
@@ -467,76 +412,106 @@ export default function NewsCardGrid({
                       gap: "2px",
                     }}
                   >
-                    
                     {/* ---- AI Summarize ---- */}
-                    <SummarizeButton
-                      articleId={id}
-                      onSummarize={onSummarize}
-                      iconBtnStyle={iconBtnStyle}
-                      tooltipStyle={tooltipStyle}
-                      strokeFor={strokeFor}
-                    />
-                    {/* ---- Source link ---- */}
-                    <div
-                      style={{ position: "relative" }}
-                      onMouseEnter={() => setHoveredBtn("source")}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onMouseEnter={() => setHoveredBtn("menu-summarize")}
                       onMouseLeave={() => setHoveredBtn(null)}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        if (typeof onSummarize === "function") onSummarize(id);
+                      }}
+                      style={menuItemStyle(
+                        hoveredBtn === "menu-summarize",
+                        false,
+                        "#c792ea",
+                      )}
                     >
-                      <a
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ display: "flex", textDecoration: "none" }}
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
                       >
-                    <div
-                        style={{
-                          width: "32px",
-                          height: "32px",
-                          borderRadius: "10px",
-                          background:
-                            hoveredBtn === "source"
-                              ? "linear-gradient(135deg, #c792ea, #82aaff)"
-                              : "rgba(255,255,255,0.04)",
-                          border: "1px solid",
-                          borderColor:
-                            hoveredBtn === "source"
-                              ? "transparent"
-                              : "rgba(255,255,255,0.06)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          cursor: "pointer",
-                          flexShrink: 0,
-                          transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
-                        }}
-                        >
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke={hoveredBtn === "source" ? "#0e0e12" : "#6a6a7a"}
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            style={{
-                              transition: "stroke 0.2s ease, transform 0.2s ease",
-                              transform:
-                                hoveredBtn === "source"
-                                ? "translateX(2px)"
-                                : "translateX(0)",
-                            }}
-                          >
-                            <line x1="5" y1="12" x2="19" y2="12" />
-                            <polyline points="12 5 19 12 12 19" />
-                          </svg>
-                        </div>
-                      </a>
-                      {hoveredBtn === "source" && (
-                        <div style={tooltipStyle}>Redirect to source</div>
-                         )}
-                    </div>
-                    {/* Upvote menu item */}
+                        <path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5 10.1 10.9 5.5 9l4.6-1.4L12 3z" />
+                        <path d="M19 14l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8.8-2z" />
+                      </svg>
+                      <span>AI Summarize</span>
+                    </button>
+
+                    {/* ---- Source link ---- */}
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      role="menuitem"
+                      onMouseEnter={() => setHoveredBtn("menu-source")}
+                      onMouseLeave={() => setHoveredBtn(null)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        ...menuItemStyle(
+                          hoveredBtn === "menu-source",
+                          false,
+                          "#82aaff",
+                        ),
+                        textDecoration: "none",
+                      }}
+                    >
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                        <polyline points="12 5 19 12 12 19" />
+                      </svg>
+                      <span>Open source</span>
+                    </a>
+
+                    {/* ---- Assign labels (opens the right-click menu) ---- */}
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onMouseEnter={() => setHoveredBtn("menu-labels")}
+                      onMouseLeave={() => setHoveredBtn(null)}
+                      onClick={(e) => {
+                        // Anchor the label menu to this kebab item.
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setMenuOpen(false);
+                        setLabelMenu({ x: rect.left, y: rect.bottom + 4 });
+                      }}
+                      style={menuItemStyle(
+                        hoveredBtn === "menu-labels",
+                        false,
+                        "#c792ea",
+                      )}
+                    >
+                      <svg
+                        width="15"
+                        height="15"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                        <line x1="7" y1="7" x2="7.01" y2="7" />
+                      </svg>
+                      <span>Labels</span>
+                    </button>
+
                     <button
                       type="button"
                       role="menuitem"
@@ -567,7 +542,6 @@ export default function NewsCardGrid({
                       <span>{vote === true ? "Remove upvote" : "Upvote"}</span>
                     </button>
 
-                    {/* Downvote menu item */}
                     <button
                       type="button"
                       role="menuitem"
@@ -600,7 +574,6 @@ export default function NewsCardGrid({
                       </span>
                     </button>
 
-                    {/* Divider */}
                     <div
                       style={{
                         height: "1px",
@@ -609,7 +582,6 @@ export default function NewsCardGrid({
                       }}
                     />
 
-                    {/* Read / Unread menu item */}
                     <button
                       type="button"
                       role="menuitem"
@@ -664,7 +636,6 @@ export default function NewsCardGrid({
             </div>
           </div>
 
-          {/* Title */}
           <h3
             style={{
               fontSize: "15px",
@@ -682,7 +653,6 @@ export default function NewsCardGrid({
             {stripHtml(title)}
           </h3>
 
-          {/* Description */}
           {(() => {
             const cleanDescription = stripHtml(description);
             return cleanDescription ? (
@@ -704,7 +674,6 @@ export default function NewsCardGrid({
           })()}
         </div>
 
-        {/* Bottom: Date row */}
         <div
           style={{
             display: "flex",
@@ -773,6 +742,18 @@ export default function NewsCardGrid({
           )}
         </div>
       </div>
+
+      {/* ---- Right-click label menu (grid: Assign / Assigned chooser) ---- */}
+      {labelMenu && (
+        <LabelContextMenu
+          labels={labels}
+          variant="grid"
+          x={labelMenu.x}
+          y={labelMenu.y}
+          onClose={() => setLabelMenu(null)}
+          navigateTo={navigateTo}
+        />
+      )}
     </div>
   );
 }

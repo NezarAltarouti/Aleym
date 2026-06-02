@@ -335,10 +335,11 @@ export default function AleymFeed({
   // -------- Filter args --------
   const buildFilterArgs = useCallback(() => {
     const q = {};
-    if (stableSelectedSourceIds.length === 1) {
-      q.source_id = stableSelectedSourceIds[0];
-    } else if (stableSelectedCategoryIds.length === 1) {
-      q.category_id = stableSelectedCategoryIds[0];
+    if (stableSelectedSourceIds.length > 0) {
+      // API accepts string|string[] — pass the full array so multi-select works.
+      q.source_id = stableSelectedSourceIds;
+    } else if (stableSelectedCategoryIds.length > 0) {
+      q.category_id = stableSelectedCategoryIds;
     }
     // `labels` is the correct param name — accepts an array of UUIDs.
     if (stableSelectedLabelIds.length > 0) {

@@ -24,7 +24,7 @@ function EditSourceModal({ source, onClose, onSaved }) {
   const [description, setDescription] = useState(source.description || "");
   const [network, setNetwork] = useState(source.networktype || "Clear");
   const [isEnabled, setIsEnabled] = useState(source.is_enabled ?? true);
-  const [categories, setCategories] = useState([]);
+  const {categories} = useData();
   const [selectedCategoryIds, setSelectedCategoryIds] = useState(new Set());
   const [originalCategoryIds, setOriginalCategoryIds] = useState(new Set());
   const [saving, setSaving] = useState(false);
@@ -53,12 +53,8 @@ function EditSourceModal({ source, onClose, onSaved }) {
     let alive = true;
     async function load() {
       try {
-        const [cats, srcCats] = await Promise.all([
-          api.categories.list(),
-          api.sources.categories(source.id),
-        ]);
+        const srcCats = await api.sources.categories(source.id);
         if (!alive) return;
-        setCategories(cats || []);
         const ids = new Set((srcCats || []).map((c) => c.id));
         setSelectedCategoryIds(ids);
         setOriginalCategoryIds(ids);
@@ -95,7 +91,7 @@ function EditSourceModal({ source, onClose, onSaved }) {
       
       setSuccess(true);
       if (onSaved) onSaved();
-      setTimeout(() => onClose(), 800);
+      setTimeout(() => onClose(), 500);
     } catch (err) {
       setError(err.message);
     } finally {

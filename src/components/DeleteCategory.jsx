@@ -64,7 +64,7 @@ export default function DeleteCategory({ trigger, onCategoryDeleted }) {
 
       setTimeout(() => {
         close();
-      }, 1000);
+      }, 500);
     } catch (err) {
       setError(err.message || "An error occurred while deleting.");
     } finally {

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import Popup from "reactjs-popup";
 import api from "../services/aleymApi";
+import { useData } from "../contexts/DataContext";
 
 const overlayStyle = {
   background: "rgba(0,0,0,0.6)",
@@ -10,6 +11,7 @@ const overlayStyle = {
 export default function DeleteSource({ trigger, onSourceDeleted }) {
   const [hoveredBtn, setHoveredBtn] = useState(null);
 
+  const { categories, sources: groupedSources } = useData();
   const [sources, setSources] = useState([]);
   const [sourceCategoryMap, setSourceCategoryMap] = useState({});
   const [selectedIds, setSelectedIds] = useState([]);
@@ -26,29 +28,18 @@ export default function DeleteSource({ trigger, onSourceDeleted }) {
     setSelectedIds([]);
 
     try {
-      const [srcData, catData] = await Promise.all([
-        api.sources.list(),
-        api.categories.list(),
-      ]);
-
+      const srcData = await api.sources.list();
       setSources(srcData || []);
 
       const catMap = {};
-      await Promise.all(
-        (catData || []).map(async (cat) => {
-          try {
-            const catSources = await api.categories.sources(cat.id);
-            (catSources || []).forEach((source) => {
-              catMap[source.id] = cat.name;
-            });
-          } catch {
-            // ignore per-category errors
-          }
-        })
-      );
+      categories.forEach((cat) => {
+        (groupedSources[cat.id] || []).forEach((source) => {
+          catMap[source.id] = cat.name;
+        });
+      });
       setSourceCategoryMap(catMap);
     } catch (err) {
-      setError(err.message || "Failed to load sources.");
+     setError(err.message || "Failed to load sources.");
     } finally {
       setLoading(false);
     }
@@ -71,7 +62,7 @@ export default function DeleteSource({ trigger, onSourceDeleted }) {
       setSelectedIds([]);
       setSuccess(true);
       if (onSourceDeleted) onSourceDeleted();
-      setTimeout(() => close(), 1000);
+      setTimeout(() => close(), 500);
     } catch (err) {
       setError(err.message || "An error occurred while deleting.");
     } finally {

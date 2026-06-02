@@ -85,7 +85,7 @@ export default function NewCategory({ trigger, onCategoryAdded }) {
       setTimeout(() => {
         resetForm();
         close();
-      }, 1000);
+      }, 500);
     } catch (err) {
       setError(err.message || "Failed to create category");
     } finally {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import Popup from "reactjs-popup";
 import api from "../services/aleymApi";
+import { useData } from "../contexts/DataContext";
 
 function InfoTooltip({ content }) {
   const [visible, setVisible] = useState(false);
@@ -118,9 +119,8 @@ const fieldGroupStyle = {
 
 export default function AddNewSource({ trigger, onSourceAdded }) {
   const [hoveredBtn, setHoveredBtn] = useState(null);
-  const [categories, setCategories] = useState([]);
+  const { categories } = useData();
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const [isOpen, setIsOpen] = useState(false);
 
   // Form state
   const [name, setName] = useState("");
@@ -136,18 +136,6 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
 
-  // Load categories on mount
-  useEffect(() => {
-    if (!isOpen) return;
-    let alive = true;
-    api.categories
-      .list()
-      .then((cats) => {
-        if (alive) setCategories(cats || []);
-      })
-      .catch((err) => console.warn("Failed to load categories:", err));
-    return () => { alive = false; };
-  }, [isOpen]);
 
   const resetForm = () => {
     setName("");
@@ -213,7 +201,7 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
       setTimeout(() => {
         resetForm();
         close();
-      }, 1000);
+      }, 300);
     } catch (err) {
       setError(err.message || "Failed to create source");
     } finally {
@@ -233,11 +221,7 @@ export default function AddNewSource({ trigger, onSourceAdded }) {
         padding: 0,
         width: "auto",
       }}
-      onOpen={() => setIsOpen(true)}
-      onClose={() => {
-        setIsOpen(false);
-        resetForm();
-      }}
+      onClose={() => resetForm()}
     >
       {(close) => (
         <div

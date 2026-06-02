@@ -1,7 +1,8 @@
 {
   "name": "alyemui",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.1",
+  "description": "Aleym is a local-first and privacy-focused news aggregation platform and knowledge-base system, designed to protect continuous cybersecurity threat intelligence operations from details leakage and to keep privacy-conscious users as safe as possible. It delivers real-time like and personalized news access by avoiding centrally hosted services and minimizing exposure of identifiable user data.",
   "type": "module",
   "scripts": {
     "dev": "vite",

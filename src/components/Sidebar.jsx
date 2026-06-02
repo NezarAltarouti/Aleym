@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect } from "react";
 import { useData } from "../contexts/DataContext";
+import AboutModal from "./AboutModal";
 
 const SIDEBAR_WIDTH_OPEN = 260;
 const SIDEBAR_WIDTH_CLOSED = 72;
@@ -52,6 +53,7 @@ export default function Sidebar({
   const [selectedCategories, setSelectedCategories] = useState(new Set());
   const [selectedSources, setSelectedSources] = useState(new Set());
   const { categories, sources, loading } = useData();
+  const [showAbout, setShowAbout] = useState(false);
 
   const width = open ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED;
   const PADDING_X = 16;
@@ -520,69 +522,131 @@ export default function Sidebar({
           </>
         )}
       </nav>
-
-      <div
+        {/* About button */}
+      <div>
+      <button
+        onClick={() => setShowAbout(true)}
+        onMouseEnter={() => setHovered("about")}
+        onMouseLeave={() => setHovered(null)}
+      style={{
+        width: "100%",
+        height: "44px",
+        display: "flex",
+        alignItems: "center",
+        gap: "12px",
+        padding: "10px 10px",
+        background: hovered === "about" ? "rgba(255,255,255,0.05)" : "transparent",
+        border: "1px solid",
+        borderColor: hovered === "about" ? "rgba(255,255,255,0.08)" : "transparent",
+        borderRadius: "10px",
+        color: hovered === "about" ? "#e8e6e1" : "#6a6a7a",
+        fontSize: "13px",
+        fontWeight: 500,
+        cursor: "pointer",
+        transition: "background 0.15s ease, border-color 0.15s ease, color 0.15s ease",
+        textAlign: "left",
+        fontFamily: "inherit",
+        overflow: "hidden",
+      }}
+      >
+      <span
         style={{
-          padding: `12px ${PADDING_X}px`,
-          borderTop: "1px solid rgba(255,255,255,0.05)",
+          width: "20px",
+          height: "20px",
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}
       >
-        <button
-          onClick={() => setOpen(!open)}
-          onMouseEnter={() => setHovered("toggle")}
-          onMouseLeave={() => setHovered(null)}
-          style={{
-            width: "100%",
-            height: "44px",
-            display: "flex",
-            alignItems: "center",
-            gap: "12px",
-            padding: "0 10px",
-            background: hovered === "toggle" ? "rgba(255,255,255,0.05)" : "transparent",
-            border: "1px solid",
-            borderColor: hovered === "toggle" ? "rgba(255,255,255,0.08)" : "transparent",
-            borderRadius: "10px",
-            color: hovered === "toggle" ? "#e8e6e1" : "#6a6a7a",
-            fontSize: "13px",
-            fontWeight: 500,
-            cursor: "pointer",
-            transition: "background 0.15s ease, border-color 0.15s ease, color 0.15s ease",
-            textAlign: "left",
-            fontFamily: "inherit",
-            overflow: "hidden",
-          }}
-        >
-          <span
-            style={{
-              width: "20px",
-              height: "20px",
-              flexShrink: 0,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-              transform: open ? "rotate(0deg)" : "rotate(180deg)",
-            }}
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="11 17 6 12 11 7" />
-              <polyline points="18 17 13 12 18 7" />
-            </svg>
-          </span>
-          <span
-            style={{
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              opacity: open ? 1 : 0,
-              transition: "opacity 0.2s ease",
-              minWidth: 0,
-            }}
-          >
-            Collapse
-          </span>
-        </button>
-      </div>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+      </span>
+      <span
+        style={{
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          opacity: open ? 1 : 0,
+          transition: "opacity 0.2s ease",
+          minWidth: 0,
+        }}
+      >
+        About
+      </span>
+    </button>
     </div>
+
+  <div
+    style={{
+      padding: `12px ${PADDING_X}px`,
+      borderTop: "1px solid rgba(255,255,255,0.05)",
+      display: "flex",
+      flexDirection: "column",
+      gap: "4px",
+    }}
+  >
+
+  {/* Collapse button */}
+  <button
+    onClick={() => setOpen(!open)}
+    onMouseEnter={() => setHovered("toggle")}
+    onMouseLeave={() => setHovered(null)}
+    style={{
+      width: "100%",
+      height: "44px",
+      display: "flex",
+      alignItems: "center",
+      gap: "12px",
+      padding: "0 10px",
+      background: hovered === "toggle" ? "rgba(255,255,255,0.05)" : "transparent",
+      border: "1px solid",
+      borderColor: hovered === "toggle" ? "rgba(255,255,255,0.08)" : "transparent",
+      borderRadius: "10px",
+      color: hovered === "toggle" ? "#e8e6e1" : "#6a6a7a",
+      fontSize: "13px",
+      fontWeight: 500,
+      cursor: "pointer",
+      transition: "background 0.15s ease, border-color 0.15s ease, color 0.15s ease",
+      textAlign: "left",
+      fontFamily: "inherit",
+      overflow: "hidden",
+    }}
+  >
+    <span
+      style={{
+        width: "20px",
+        height: "20px",
+        flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        transition: "transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+        transform: open ? "rotate(0deg)" : "rotate(180deg)",
+      }}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <polyline points="11 17 6 12 11 7" />
+        <polyline points="18 17 13 12 18 7" />
+      </svg>
+    </span>
+    <span
+      style={{
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        opacity: open ? 1 : 0,
+        transition: "opacity 0.2s ease",
+        minWidth: 0,
+      }}
+    >
+      Collapse
+    </span>
+  </button>
+    </div>
+    {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
+  </div>
   );
 }
 

@@ -282,33 +282,30 @@ export default function NewsCard({
     >
       <div
         style={{
-          background: readState
-            ? "rgba(255,255,255,0.01)"
-            : hovered
-              ? "linear-gradient(135deg, rgba(199,146,234,0.06) 0%, rgba(130,170,255,0.06) 100%)"
-              : "rgba(255,255,255,0.02)",
+          background: hovered
+            ? "linear-gradient(135deg, rgba(199,146,234,0.06) 0%, rgba(130,170,255,0.06) 100%)"
+            : "rgba(255,255,255,0.02)",
           border: "1px solid",
           borderColor: readState
-            ? "rgba(255,255,255,0.03)"
-            : hovered
-              ? "rgba(199,146,234,0.2)"
-              : "rgba(255,255,255,0.06)",
+          ? "rgba(52,211,153,0.3)"
+          : hovered
+            ? "rgba(199,146,234,0.2)"
+            : "rgba(255,255,255,0.06)",
           borderRadius: "16px",
           padding: "24px",
           transition: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
           transform:
-            hovered && !readState ? "translateY(-4px)" : "translateY(0)",
-          boxShadow:
-            hovered && !readState
-              ? "0 12px 40px rgba(199,146,234,0.1), 0 4px 12px rgba(0,0,0,0.3)"
-              : "0 1px 4px rgba(0,0,0,0.2)",
+            hovered ? "translateY(-4px)" : "translateY(0)",
+          boxShadow: readState && hovered
+            ? "0 12px 40px rgba(52,211,153,0.08), 0 4px 12px rgba(0,0,0,0.2)"
+          : hovered && !readState
+            ? "0 12px 40px rgba(199,146,234,0.1), 0 4px 12px rgba(0,0,0,0.3)"
+            : "0 1px 4px rgba(0,0,0,0.2)",
           display: "flex",
           flexDirection: "column",
           justifyContent: "space-between",
           minHeight: "240px",
           height: "100%",
-          opacity: readState ? 0.55 : 1,
-          filter: readState ? "grayscale(0.6)" : "none",
         }}
       >
         {/* Top section */}
@@ -330,14 +327,10 @@ export default function NewsCard({
                 fontWeight: 600,
                 letterSpacing: "1.5px",
                 textTransform: "uppercase",
-                color: readState ? "#6a6a7a" : "#82aaff",
-                background: readState
-                  ? "rgba(255,255,255,0.03)"
-                  : "rgba(130,170,255,0.08)",
+                color: "#82aaff",
+                background: "rgba(130,170,255,0.08)",
                 border: "1px solid",
-                borderColor: readState
-                  ? "rgba(255,255,255,0.06)"
-                  : "rgba(130,170,255,0.12)",
+                borderColor: "rgba(130,170,255,0.12)",
                 borderRadius: "6px",
                 padding: "3px 10px",
                 whiteSpace: "nowrap",

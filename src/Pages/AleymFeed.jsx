@@ -48,6 +48,17 @@ function errorMessage(err, fallback) {
   return err.message || fallback;
 }
 
+// Stabilize an array prop — same reference while contents are equal.
+// Prevents useCallback/useEffect chains re-firing on every render when the
+// parent passes a new [] literal with the same values.
+function useStableArray(arr) {
+  const ref = useRef(arr);
+  if (JSON.stringify(ref.current) !== JSON.stringify(arr)) {
+    ref.current = arr;
+  }
+  return ref.current;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -59,7 +70,13 @@ export default function AleymFeed({
   onSummarize,
   selectedCategoryIds = [],
   selectedSourceIds = [],
+  selectedLabelIds = [],
 }) {
+  // Stabilize array props so their reference only changes when contents change.
+  const stableSelectedCategoryIds = useStableArray(selectedCategoryIds);
+  const stableSelectedSourceIds   = useStableArray(selectedSourceIds);
+  const stableSelectedLabelIds    = useStableArray(selectedLabelIds);
+
   // -------- UI state --------
   const [sidebarOpen, setSidebarOpen] = useState(() => {
     const saved = localStorage.getItem("sidebarOpen");
@@ -76,6 +93,7 @@ export default function AleymFeed({
   const [articles, setArticles] = useState([]);
   const [sources, setSources] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [labels, setLabels] = useState([]);
   const [sourceToCategoryMap, setSourceToCategoryMap] = useState({});
 
   const [loadingInitial, setLoadingInitial] = useState(true);
@@ -134,10 +152,9 @@ export default function AleymFeed({
   }, [toasts.length]);
 
   // -------- Filters --------
-  const selectedSource =
-    selectedSourceIds.length === 1 ? selectedSourceIds[0] : "";
-  const selectedCategory =
-    selectedCategoryIds.length === 1 ? selectedCategoryIds[0] : "";
+  const hasActiveSourceFilter = stableSelectedSourceIds.length > 0;
+  const hasActiveCategoryFilter = stableSelectedCategoryIds.length > 0;
+  const hasActiveLabelFilter = stableSelectedLabelIds.length > 0;
   const [sortOrder, setSortOrder] = useState("desc");
   const [searchInput, setSearchInput] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
@@ -210,26 +227,23 @@ export default function AleymFeed({
     return m;
   }, [sources]);
 
-  const hasActiveSourceFilter = selectedSourceIds.length > 0;
-  const hasActiveCategoryFilter = selectedCategoryIds.length > 0;
-
   const filterArticles = useCallback(
     (articlesList) => {
       return articlesList.filter((article) => {
         // Source filter takes priority
         if (hasActiveSourceFilter) {
-          return selectedSourceIds.includes(article.source);
-        }
-
-        // Category filter
-        if (hasActiveCategoryFilter) {
+          if (!stableSelectedSourceIds.includes(article.source)) return false;
+        } else if (hasActiveCategoryFilter) {
+          // Category filter
           const categoryId = sourceToCategoryMap[article.source];
           if (categoryId) {
-            return selectedCategoryIds.includes(categoryId);
+            if (!stableSelectedCategoryIds.includes(categoryId)) return false;
           }
           // Article's source has no known category — include it to be safe.
-          return true;
         }
+
+        // Label filtering is handled server-side via the `labels` API param.
+        // Feed articles don't carry a labels field in the list response.
 
         return true;
       });
@@ -237,8 +251,8 @@ export default function AleymFeed({
     [
       hasActiveSourceFilter,
       hasActiveCategoryFilter,
-      selectedSourceIds,
-      selectedCategoryIds,
+      stableSelectedSourceIds,
+      stableSelectedCategoryIds,
       sourceToCategoryMap,
     ],
   );
@@ -258,19 +272,21 @@ export default function AleymFeed({
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  // -------- Source-to-category mapping --------
+  // -------- Source-to-category mapping + labels --------
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const [allSources, catData] = await Promise.all([
+        const [allSources, catData, labelData] = await Promise.all([
           api.sources.list(),
           api.categories.list(),
+          api.labels ? api.labels.list().catch(() => []) : Promise.resolve([]),
         ]);
         if (!alive) return;
 
         setCategories(catData || []);
         setSources(allSources || []);
+        setLabels(labelData || []);
 
         const sourceToCatMap = {};
         await Promise.all(
@@ -313,16 +329,20 @@ export default function AleymFeed({
   // -------- Filter args --------
   const buildFilterArgs = useCallback(() => {
     const q = {};
-    if (selectedSourceIds.length === 1) {
-      q.source_id = selectedSourceIds[0];
-    } else if (selectedCategoryIds.length === 1) {
-      q.category_id = selectedCategoryIds[0];
+    if (stableSelectedSourceIds.length === 1) {
+      q.source_id = stableSelectedSourceIds[0];
+    } else if (stableSelectedCategoryIds.length === 1) {
+      q.category_id = stableSelectedCategoryIds[0];
+    }
+    // `labels` is the correct param name — accepts an array of UUIDs.
+    if (stableSelectedLabelIds.length > 0) {
+      q.labels = stableSelectedLabelIds;
     }
 
     if (searchQuery) q.query = searchQuery;
     if (readFilter !== "") q.is_read = readFilter === "true";
     return q;
-  }, [selectedSourceIds, selectedCategoryIds, searchQuery, readFilter]);
+  }, [stableSelectedSourceIds, stableSelectedCategoryIds, stableSelectedLabelIds, searchQuery, readFilter]);
 
   // -------- Reset & load first page --------
   const loadFirstPage = useCallback(async () => {
@@ -693,7 +713,8 @@ export default function AleymFeed({
   }, []);
 
   const onManualFetchSource = useCallback(async () => {
-    if (!selectedSource || manualFetching) return;
+    if (stableSelectedSourceIds.length !== 1 || manualFetching) return;
+    const selectedSource = stableSelectedSourceIds[0];
     setManualFetching(true);
     setError(null);
 
@@ -737,7 +758,21 @@ export default function AleymFeed({
         setManualFetching(false);
       }
     }
-  }, [selectedSource, manualFetching, loadFirstPage, pushToast]);
+  }, [stableSelectedSourceIds, manualFetching, loadFirstPage, pushToast]);
+
+  // -------- Multi-select state (open/close) --------
+  const [openDropdown, setOpenDropdown] = useState(null); // 'sources' | 'categories' | 'labels' | null
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e) => {
+      if (!e.target.closest("[data-aleym-multiselect]")) {
+        setOpenDropdown(null);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   // -------- Layout --------
   const marginLeft = compactMode
@@ -777,8 +812,8 @@ export default function AleymFeed({
             setSidebarOpen(newVal);
           }}
           navigateTo={navigateTo}
-          selectedCategoryIds={selectedCategoryIds}
-          selectedSourceIds={selectedSourceIds}
+          selectedCategoryIds={stableSelectedCategoryIds}
+          selectedSourceIds={stableSelectedSourceIds}
           disableTransition={!enableTransition}
         />
       )}
@@ -797,6 +832,18 @@ export default function AleymFeed({
         @keyframes aleymToastIn {
           0%   { transform: translateX(16px); opacity: 0; }
           100% { transform: translateX(0);    opacity: 1; }
+        }
+
+        /* Multi-select dropdown scrollbar */
+        [data-aleym-multiselect] div::-webkit-scrollbar {
+          width: 4px;
+        }
+        [data-aleym-multiselect] div::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        [data-aleym-multiselect] div::-webkit-scrollbar-thumb {
+          background: rgba(199,146,234,0.25);
+          border-radius: 4px;
         }
 
         /* Aleym select dropdown styling */
@@ -1015,46 +1062,111 @@ export default function AleymFeed({
                 flexWrap: "wrap",
               }}
             >
-              <select
-                className="aleym-select"
-                value={selectedSource}
-                onChange={(e) => {
-                  const sourceId = e.target.value;
+              {/* Sources multi-select */}
+              <MultiSelectDropdown
+                id="sources"
+                label="Sources"
+                allLabel="All Sources"
+                options={sources
+                  .filter((s) => s.is_enabled !== false)
+                  .map((s) => ({ value: s.id, label: s.name }))}
+                selectedValues={stableSelectedSourceIds}
+                isOpen={openDropdown === "sources"}
+                onToggleOpen={() =>
+                  setOpenDropdown((prev) =>
+                    prev === "sources" ? null : "sources",
+                  )
+                }
+                onToggleOption={(id) => {
+                  const next = stableSelectedSourceIds.includes(id)
+                    ? stableSelectedSourceIds.filter((x) => x !== id)
+                    : [...stableSelectedSourceIds, id];
+                  navigateTo("aleym", {
+                    categoryIds: stableSelectedCategoryIds,
+                    sourceIds: next,
+                    labelIds: stableSelectedLabelIds,
+                  });
+                }}
+                onClear={() =>
+                  navigateTo("aleym", {
+                    categoryIds: stableSelectedCategoryIds,
+                    sourceIds: [],
+                    labelIds: stableSelectedLabelIds,
+                  })
+                }
+              />
+
+              {/* Categories multi-select */}
+              <MultiSelectDropdown
+                id="categories"
+                label="Categories"
+                allLabel="All Categories"
+                options={categories.map((c) => ({
+                  value: c.id,
+                  label: c.name,
+                }))}
+                selectedValues={stableSelectedCategoryIds}
+                isOpen={openDropdown === "categories"}
+                onToggleOpen={() =>
+                  setOpenDropdown((prev) =>
+                    prev === "categories" ? null : "categories",
+                  )
+                }
+                onToggleOption={(id) => {
+                  const next = stableSelectedCategoryIds.includes(id)
+                    ? stableSelectedCategoryIds.filter((x) => x !== id)
+                    : [...stableSelectedCategoryIds, id];
+                  navigateTo("aleym", {
+                    categoryIds: next,
+                    sourceIds: stableSelectedSourceIds,
+                    labelIds: stableSelectedLabelIds,
+                  });
+                }}
+                onClear={() =>
                   navigateTo("aleym", {
                     categoryIds: [],
-                    sourceIds: sourceId ? [sourceId] : [],
-                  });
-                }}
-                style={selectStyle}
-              >
-                <option value="">All Sources</option>
-                {sources
-                  .filter((s) => s.is_enabled !== false)
-                  .map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-              </select>
-              <select
-                className="aleym-select"
-                value={selectedCategory}
-                onChange={(e) => {
-                  const categoryId = e.target.value;
-                  navigateTo("aleym", {
-                    categoryIds: categoryId ? [categoryId] : [],
-                    sourceIds: [],
-                  });
-                }}
-                style={selectStyle}
-              >
-                <option value="">All Categories</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                    sourceIds: stableSelectedSourceIds,
+                    labelIds: stableSelectedLabelIds,
+                  })
+                }
+              />
+
+              {/* Labels multi-select */}
+              {labels.length > 0 && (
+                <MultiSelectDropdown
+                  id="labels"
+                  label="Labels"
+                  allLabel="All Labels"
+                  options={labels.map((l) => ({
+                    value: l.id,
+                    label: l.name,
+                  }))}
+                  selectedValues={stableSelectedLabelIds}
+                  isOpen={openDropdown === "labels"}
+                  onToggleOpen={() =>
+                    setOpenDropdown((prev) =>
+                      prev === "labels" ? null : "labels",
+                    )
+                  }
+                  onToggleOption={(id) => {
+                    const next = stableSelectedLabelIds.includes(id)
+                      ? stableSelectedLabelIds.filter((x) => x !== id)
+                      : [...stableSelectedLabelIds, id];
+                    navigateTo("aleym", {
+                      categoryIds: stableSelectedCategoryIds,
+                      sourceIds: stableSelectedSourceIds,
+                      labelIds: next,
+                    });
+                  }}
+                  onClear={() =>
+                    navigateTo("aleym", {
+                      categoryIds: stableSelectedCategoryIds,
+                      sourceIds: stableSelectedSourceIds,
+                      labelIds: [],
+                    })
+                  }
+                />
+              )}
               <select
                 className="aleym-select"
                 value={sortOrder}
@@ -1075,7 +1187,7 @@ export default function AleymFeed({
                 <option value="true">Read</option>
               </select>
 
-              {selectedSource && (
+              {stableSelectedSourceIds.length === 1 && (
                 <button
                   onClick={onManualFetchSource}
                   disabled={manualFetching}
@@ -1622,6 +1734,223 @@ function FeedArticleCard({
       }}
     >
       {isGrid ? <NewsCardGrid {...cardProps} /> : <NewsCard {...cardProps} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MultiSelectDropdown
+// ---------------------------------------------------------------------------
+
+function MultiSelectDropdown({
+  id,
+  label,
+  allLabel,
+  options,
+  selectedValues,
+  isOpen,
+  onToggleOpen,
+  onToggleOption,
+  onClear,
+}) {
+  const count = selectedValues.length;
+  const hasSelection = count > 0;
+
+  const buttonLabel = hasSelection
+    ? count === 1
+      ? options.find((o) => o.value === selectedValues[0])?.label || label
+      : `${label}: ${count}`
+    : allLabel;
+
+  return (
+    <div
+      data-aleym-multiselect
+      style={{ position: "relative", flexShrink: 0 }}
+    >
+      <button
+        onClick={onToggleOpen}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          padding: "8px 12px",
+          fontSize: "13px",
+          fontFamily: "'DM Sans', sans-serif",
+          background: hasSelection
+            ? "rgba(199,146,234,0.12)"
+            : "rgba(255,255,255,0.04)",
+          border: hasSelection
+            ? "1px solid rgba(199,146,234,0.35)"
+            : "1px solid rgba(255,255,255,0.08)",
+          borderRadius: "10px",
+          color: hasSelection ? "#c792ea" : "#e8e6e1",
+          cursor: "pointer",
+          whiteSpace: "nowrap",
+          maxWidth: "180px",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          transition: "border-color 0.2s, background 0.2s",
+        }}
+      >
+        <span
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            flex: 1,
+            minWidth: 0,
+          }}
+        >
+          {buttonLabel}
+        </span>
+        {hasSelection && (
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              onClear();
+            }}
+            title="Clear filter"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexShrink: 0,
+              color: "rgba(199,146,234,0.7)",
+              cursor: "pointer",
+            }}
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </span>
+        )}
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 12 8"
+          fill="none"
+          stroke={hasSelection ? "#c792ea" : "#6a6a7a"}
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          style={{
+            flexShrink: 0,
+            transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
+            transition: "transform 0.2s",
+          }}
+        >
+          <path d="M1 1.5L6 6.5L11 1.5" />
+        </svg>
+      </button>
+
+      {isOpen && options.length > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 6px)",
+            left: 0,
+            zIndex: 500,
+            background: "#1a1a22",
+            border: "1px solid rgba(255,255,255,0.10)",
+            borderRadius: "12px",
+            boxShadow: "0 12px 36px rgba(0,0,0,0.5)",
+            minWidth: "200px",
+            maxWidth: "280px",
+            display: "flex", 
+            flexDirection: "column",
+             gap: "3px",
+            maxHeight: "280px",
+            overflowY: "auto",
+            padding: "6px",
+          }}
+        >
+          {options.map((opt) => {
+            const checked = selectedValues.includes(opt.value);
+            return (
+              <button
+                key={opt.value}
+                onClick={() => onToggleOption(opt.value)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  width: "100%",
+                  padding: "8px 10px",
+                  background: checked
+                    ? "rgba(199,146,234,0.10)"
+                    : "transparent",
+                  border: "none",
+                  borderRadius: "8px",
+                  color: checked ? "#c792ea" : "#b0aec8",
+                  fontSize: "13px",
+                  fontFamily: "'DM Sans', sans-serif",
+                  textAlign: "left",
+                  cursor: "pointer",
+                  transition: "background 0.15s",
+                }}
+                onMouseEnter={(e) => {
+                  if (!checked)
+                    e.currentTarget.style.background =
+                      "rgba(255,255,255,0.05)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!checked) e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <span
+                  style={{
+                    width: "16px",
+                    height: "16px",
+                    borderRadius: "5px",
+                    border: checked
+                      ? "1.5px solid rgba(199,146,234,0.8)"
+                      : "1.5px solid rgba(255,255,255,0.18)",
+                    background: checked
+                      ? "rgba(199,146,234,0.20)"
+                      : "transparent",
+                    flexShrink: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {checked && (
+                    <svg
+                      width="10"
+                      height="10"
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      stroke="#c792ea"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <polyline points="2 6 5 9 10 3" />
+                    </svg>
+                  )}
+                </span>
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {opt.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

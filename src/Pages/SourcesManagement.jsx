@@ -769,6 +769,7 @@ function StatsBar({ sources }) {
   const clearCount = sources.filter(
     (s) => !s.networktype || s.networktype === "Clear",
   ).length;
+  const telegramCount = sources.filter((s) => s.informant === 2).length;
 
   const stats = [
     { label: "Total", value: total, color: "#e8e6e1" },
@@ -776,6 +777,7 @@ function StatsBar({ sources }) {
     { label: "Disabled", value: disabled, color: "#ff6464" },
     { label: "Clear Net", value: clearCount, color: "#82aaff" },
     { label: "Tor", value: torCount, color: "#c792ea" },
+    { label: "telegram", value: telegramCount, color: "#c792ea" },
   ];
 
   return (
@@ -794,7 +796,7 @@ function StatsBar({ sources }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(5, 1fr)",
+          gridTemplateColumns: "repeat(6, 1fr)",
           gap: "1px",
           background: "rgba(255,255,255,0.04)",
           borderRadius: "12px",

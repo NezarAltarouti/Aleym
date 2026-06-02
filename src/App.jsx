@@ -76,6 +76,7 @@ export default function App() {
   const [feedFilter, setFeedFilter] = useState({
     categoryIds: [],
     sourceIds: [],
+    labelIds: [],
   });
 
   // ---- AI summary modal state ----
@@ -108,7 +109,7 @@ export default function App() {
     }
 
     if (p === "aleym") {
-      if (data && ("categoryIds" in data || "sourceIds" in data)) {
+      if (data && ("categoryIds" in data || "sourceIds" in data || "labelIds" in data)) {
         setFeedFilter({
           categoryIds: Array.isArray(data.categoryIds)
             ? data.categoryIds
@@ -119,6 +120,11 @@ export default function App() {
             ? data.sourceIds
             : data.sourceIds
               ? [data.sourceIds]
+              : [],
+          labelIds: Array.isArray(data.labelIds)
+            ? data.labelIds
+            : data.labelIds
+              ? [data.labelIds]
               : [],
         });
       }
@@ -170,6 +176,7 @@ export default function App() {
             onSummarize={setSummaryArticleId}
             selectedCategoryIds={feedFilter.categoryIds}
             selectedSourceIds={feedFilter.sourceIds}
+            selectedLabelIds={feedFilter.labelIds}
           />
         </div>
         {showPanel && (

@@ -580,6 +580,21 @@ export const config = {
   get(signal) {
     return get("/config", undefined, signal);
   },
+  /**
+   * PUT /api/config
+   * Sends a (partial) ConfigQuery. Omit any field to leave it unchanged;
+   * only the fields you include are applied server-side.
+   *
+   * @param {{
+   *   min_fetch_interval?: number,
+   *   max_fetch_interval?: number,
+   *   short_term_cutoff_time?: number,
+   *   long_term_cutoff_time?: number,
+   *   fetch_freshness_bias?: number,
+   *   signals_count_limit?: number,
+   *   publication_window_new_items_count_threshold?: number,
+   * }} payload
+   */
 
   /**
    * PUT /api/config

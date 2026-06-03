@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Fragment } from "react";
 import Sidebar, {
   SIDEBAR_WIDTH_OPEN,
   SIDEBAR_WIDTH_CLOSED,
   SIDEBAR_STATE_KEY,
 } from "../components/Sidebar";
+import TutorialPopup from "../components/TutorialPopup";
 // Service module for the Aleym backend. Adjust the path if your aleymapi.js
 // lives somewhere other than the project src root.
 import api from "../services/aleymApi";
@@ -115,6 +116,8 @@ export default function Settings({ navigateTo }) {
   const [sidebarOpen, setSidebarOpen] = useState(readSidebarOpen);
   const [activeSection, setActiveSection] = useState(SECTIONS[0].key);
   const [hovered, setHovered] = useState(null);
+  // Controls the on-demand tutorial launcher in the section rail.
+  const [tutorialOpen, setTutorialOpen] = useState(false);
 
   const sidebarWidth = sidebarOpen ? SIDEBAR_WIDTH_OPEN : SIDEBAR_WIDTH_CLOSED;
   const active = SECTIONS.find((s) => s.key === activeSection) || SECTIONS[0];
@@ -202,7 +205,7 @@ export default function Settings({ navigateTo }) {
                 {SECTIONS.map((section) => {
                   const isActive = section.key === activeSection;
                   const isHover = hovered === `section-${section.key}`;
-                  return (
+                  const sectionButton = (
                     <button
                       key={section.key}
                       onClick={() => setActiveSection(section.key)}
@@ -256,6 +259,76 @@ export default function Settings({ navigateTo }) {
                       <span style={{ flex: 1 }}>{section.label}</span>
                     </button>
                   );
+
+                  // Inject a standalone "Tutorial" launcher directly above the
+                  // About entry. Unlike the section tabs, it doesn't switch
+                  // content it opens the tour on demand, ignoring the
+                  // "Don't show this again" checkmark.
+                  if (section.key === "about") {
+                    const isTutorialHover = hovered === "tutorial";
+                    return (
+                      <Fragment key={section.key}>
+                        <button
+                          onClick={() => setTutorialOpen(true)}
+                          onMouseEnter={() => setHovered("tutorial")}
+                          onMouseLeave={() => setHovered(null)}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "12px",
+                            padding: "12px 14px",
+                            marginBottom: "4px",
+                            background: isTutorialHover
+                              ? "rgba(255,255,255,0.03)"
+                              : "transparent",
+                            border: "1px solid",
+                            borderColor: isTutorialHover
+                              ? "rgba(255,255,255,0.06)"
+                              : "transparent",
+                            borderRadius: "10px",
+                            color: isTutorialHover ? "#e8e6e1" : "#9a9aab",
+                            fontSize: "14px",
+                            fontWeight: 500,
+                            fontFamily: "inherit",
+                            cursor: "pointer",
+                            textAlign: "left",
+                            transition:
+                              "background 0.15s ease, border-color 0.15s ease, color 0.15s ease",
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: "18px",
+                              height: "18px",
+                              flexShrink: 0,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                            }}
+                          >
+                            <svg
+                              width="18"
+                              height="18"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            >
+                              <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+                              <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+                            </svg>
+                          </span>
+                          <span style={{ flex: 1 }}>Tutorial</span>
+                        </button>
+                        {sectionButton}
+                      </Fragment>
+                    );
+                  }
+
+                  return sectionButton;
                 })}
               </aside>
             )}
@@ -284,6 +357,13 @@ export default function Settings({ navigateTo }) {
           </div>
         </div>
       </div>
+
+      {/* On-demand tour. Mounted only while open so closing it can't
+          re-trigger the popup's auto-open effect. forceOpen makes it ignore
+          the "Don't show this again" cookie. */}
+      {tutorialOpen && (
+        <TutorialPopup forceOpen onClose={() => setTutorialOpen(false)} />
+      )}
     </>
   );
 }

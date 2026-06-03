@@ -508,7 +508,7 @@ export default function TutorialPopup({ forceOpen = false, onClose }) {
                 </svg>
               )}
             </span>
-            Don't show this again
+            Don't open this on start
           </label>
 
           <div style={{ display: "flex", gap: 10 }}>

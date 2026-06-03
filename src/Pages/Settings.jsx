@@ -866,22 +866,13 @@ function ConfigurationSection() {
       try {
         const cfg = await api.config.get();
         if (cancelled) return;
-        
-        // MAPPING FIX: The backend currently sends a flat ConfigQuery object 
-        // with min/max fetch intervals instead of the fully nested config.
-        const sched = { ...SCHEDULER_DEFAULTS };
-        if (cfg) {
-          // Map flat structure (used by current API)
-          if (cfg.min_fetch_interval != null) sched.min_fetch_interval = cfg.min_fetch_interval;
-          if (cfg.max_fetch_interval != null) sched.max_fetch_interval = cfg.max_fetch_interval;
-          
-          // Map nested structure (if API gets updated to return full config struct later)
-          if (cfg.scheduler) {
-            Object.assign(sched, cfg.scheduler);
-          }
-        }
-        
-        const form = schedulerToFormValues(sched);
+
+        // /config returns a FLAT ConfigQuery: all seven scheduler fields live
+        // at the top level (there is no nested `scheduler` object). Read them
+        // straight off cfg — schedulerToFormValues already falls back to
+        // SCHEDULER_DEFAULTS for anything missing.
+
+        const form = schedulerToFormValues(cfg || {});
         setConfig(cfg || {});
         setOriginal(form);
         setValues(form);
@@ -954,26 +945,19 @@ function ConfigurationSection() {
     setSaveError(null);
     setSaved(false);
 
-    // Build the coerced scheduler object.
-    const nextScheduler = { ...(config.scheduler || {}) };
+    // ConfigQuery is FLAT: every scheduler field must sit at the TOP LEVEL of
+    // the payload. Rust's `update_config` deserializes a flat struct and
+    // ignores any nested `scheduler` object. Send all seven fields flat so
+    // each one is actually applied (not just min/max).
+    const payload = {};
     for (const field of SCHEDULER_FIELDS) {
-      nextScheduler[field.key] = coerceSchedulerValue(field, values[field.key]);
+      payload[field.key] = coerceSchedulerValue(field, values[field.key]);
     }
-
-    // MAPPING FIX: Merge into the full config so network/paths are preserved as-is.
-    // We also hoist min_fetch_interval & max_fetch_interval to the root level 
-    // since the Rust backend `update_config` parses a flat `ConfigQuery` struct.
-    const payload = { 
-      ...config, 
-      scheduler: nextScheduler,
-      min_fetch_interval: nextScheduler.min_fetch_interval,
-      max_fetch_interval: nextScheduler.max_fetch_interval,
-    };
 
     try {
       await api.config.update(payload);
       setConfig(payload);
-      const form = schedulerToFormValues(nextScheduler);
+      const form = schedulerToFormValues(payload);
       setOriginal(form);
       setValues(form);
       setSaved(true);

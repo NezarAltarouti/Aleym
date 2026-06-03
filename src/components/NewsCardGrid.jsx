@@ -276,6 +276,8 @@ export default function NewsCardGrid({
         textDecoration: "none",
         color: "inherit",
         cursor: "pointer",
+        position: "relative",
+        zIndex: menuOpen || labelMenu ? 1000 : "auto",
       }}
     >
       <div
